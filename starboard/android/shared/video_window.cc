@@ -131,11 +131,10 @@ void ClearNativeWindow(ANativeWindow* native_window) {
 }  // namespace
 
 extern "C" SB_EXPORT_PLATFORM void
-Java_dev_cobalt_media_VideoSurfaceView_nativeOnVideoSurfaceChanged(
+Java_dev_cobalt_media_VideoSurfaceView_nativeOnVideoSurfaceChangedLocked(
     JNIEnv* env,
     jobject unused_this,
     jobject surface) {
-  ScopedLock lock(*GetViewSurfaceMutex());
   if (g_video_surface_holder) {
     g_video_surface_holder->OnSurfaceDestroyed();
     g_video_surface_holder = NULL;
@@ -153,6 +152,16 @@ Java_dev_cobalt_media_VideoSurfaceView_nativeOnVideoSurfaceChanged(
     g_native_video_window = ANativeWindow_fromSurface(env, surface);
     ClearNativeWindow(g_native_video_window);
   }
+}
+
+extern "C" SB_EXPORT_PLATFORM void
+Java_dev_cobalt_media_VideoSurfaceView_nativeOnVideoSurfaceChanged(
+    JNIEnv* env,
+    jobject j_this,
+    jobject surface) {
+  ScopedLock lock(*GetViewSurfaceMutex());
+  Java_dev_cobalt_media_VideoSurfaceView_nativeOnVideoSurfaceChangedLocked(
+      env, j_this, surface);
 }
 
 extern "C" SB_EXPORT_PLATFORM void
