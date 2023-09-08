@@ -401,8 +401,15 @@ template("shared_library") {
       forward_variables_from(invoker, [ "testonly" ])
       deps = [
         ":${actual_target_name}_loader($starboard_toolchain)",
+<<<<<<< HEAD
         ":${actual_target_name}_loader_copy($starboard_toolchain)",
+=======
+        ":${actual_target_name}_loader_install($starboard_toolchain)",
+>>>>>>> fe33a216c20 (Remove loader executable copy action for windows based modular platforms (#1512))
       ]
+      if (!is_host_win) {
+        deps += [ ":${actual_target_name}_loader_copy($starboard_toolchain)" ]
+      }
     }
     if (current_toolchain == starboard_toolchain) {
       executable("${actual_target_name}_loader") {
@@ -431,11 +438,13 @@ template("shared_library") {
           "//starboard:starboard_platform_group($starboard_toolchain)",
         ]
       }
-      copy("${actual_target_name}_loader_copy") {
-        forward_variables_from(invoker, [ "testonly" ])
-        sources = [ "$root_out_dir/${actual_target_name}_loader" ]
-        outputs = [ "$root_build_dir/${actual_target_name}_loader" ]
-        deps = [ ":${actual_target_name}_loader" ]
+      if (!is_host_win) {
+        copy("${actual_target_name}_loader_copy") {
+          forward_variables_from(invoker, [ "testonly" ])
+          sources = [ "$root_out_dir/${actual_target_name}_loader" ]
+          outputs = [ "$root_build_dir/${actual_target_name}_loader" ]
+          deps = [ ":${actual_target_name}_loader" ]
+        }
       }
     }
   }
