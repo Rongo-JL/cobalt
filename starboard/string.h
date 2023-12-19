@@ -20,6 +20,7 @@
 #define STARBOARD_STRING_H_
 
 #include <stdarg.h>
+#include <stdio.h>
 
 #include "starboard/configuration.h"
 #include "starboard/export.h"
@@ -29,6 +30,7 @@
 extern "C" {
 #endif
 
+#if SB_API_VERSION < 16
 // Copies |source| into a buffer that is allocated by this function and that
 // can be freed with SbMemoryDeallocate. This function is meant to be a drop-in
 // replacement for |strdup|.
@@ -61,6 +63,7 @@ SB_EXPORT int SbStringCompareNoCase(const char* string1, const char* string2);
 SB_EXPORT int SbStringCompareNoCaseN(const char* string1,
                                      const char* string2,
                                      size_t count);
+#endif  // SB_API_VERSION < 16
 
 // Produces a string formatted with |format| and |arguments|, placing as much
 // of the result that will fit into |out_buffer|. The return value specifies
@@ -149,6 +152,7 @@ static SB_C_INLINE int SbStringFormatWideF(wchar_t* out_buffer,
   return result;
 }
 
+#if SB_API_VERSION < 16
 // Scans |buffer| for |pattern|, placing the extracted values in |arguments|.
 // The return value specifies the number of successfully matched items, which
 // may be |0|.
@@ -176,6 +180,7 @@ static SB_C_INLINE int SbStringScanF(const char* buffer,
   va_end(arguments);
   return result;
 }
+#endif  // SB_API_VERSION < 16
 
 #ifdef __cplusplus
 }  // extern "C"
