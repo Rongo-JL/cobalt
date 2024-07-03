@@ -14,13 +14,13 @@
 
 #include "starboard/elf_loader/relocations.h"
 
-#include "starboard/common/scoped_ptr.h"
+#include <memory>
+
 #include "starboard/elf_loader/elf.h"
 #include "starboard/elf_loader/file_impl.h"
 #include "starboard/string.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if SB_CAN(MAP_EXECUTABLE_MEMORY)
 namespace starboard {
 namespace elf_loader {
 
@@ -75,14 +75,14 @@ class RelocationsTest : public ::testing::Test {
 #endif
 
  protected:
-  scoped_ptr<Relocations> relocations_;
+  std::unique_ptr<Relocations> relocations_;
   Addr base_addr_;
 
  private:
   char buf_[128];
   Dyn dynamic_table_[10];
-  scoped_ptr<DynamicSection> dynamic_section_;
-  scoped_ptr<ExportedSymbols> exported_symbols_;
+  std::unique_ptr<DynamicSection> dynamic_section_;
+  std::unique_ptr<ExportedSymbols> exported_symbols_;
 };
 
 #if SB_IS(ARCH_ARM)
@@ -382,4 +382,3 @@ TEST_F(RelocationsTest, R_X86_64_PC32) {
 }  // namespace
 }  // namespace elf_loader
 }  // namespace starboard
-#endif  // SB_CAN(MAP_EXECUTABLE_MEMORY)

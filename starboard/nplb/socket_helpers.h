@@ -15,20 +15,19 @@
 #ifndef STARBOARD_NPLB_SOCKET_HELPERS_H_
 #define STARBOARD_NPLB_SOCKET_HELPERS_H_
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "starboard/common/scoped_ptr.h"
 #include "starboard/common/socket.h"
 #include "starboard/socket_waiter.h"
-#include "starboard/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace starboard {
 namespace nplb {
 
-const SbTime kSocketTimeout = kSbTimeSecond / 5;
+const int64_t kSocketTimeout = 200'000;  // 200ms
 
 // Returns true if the given address is the unspecified address (all zeros),
 // supporting both address types.
@@ -44,45 +43,47 @@ int GetPortNumberForTests();
 
 // Creates a TCP/IP server socket (sets Reuse Address option).
 SbSocket CreateServerTcpSocket(SbSocketAddressType address_type);
-scoped_ptr<Socket> CreateServerTcpSocketWrapped(
+std::unique_ptr<Socket> CreateServerTcpSocketWrapped(
     SbSocketAddressType address_type);
 
 // Creates a TCP/IP socket bound to all interfaces on the given port.
 SbSocket CreateBoundTcpSocket(SbSocketAddressType address_type, int port);
-scoped_ptr<Socket> CreateBoundTcpSocketWrapped(SbSocketAddressType address_type,
-                                               int port);
+std::unique_ptr<Socket> CreateBoundTcpSocketWrapped(
+    SbSocketAddressType address_type,
+    int port);
 
 // Creates a TCP/IP socket listening on all interfaces on the given port.
 SbSocket CreateListeningTcpSocket(SbSocketAddressType address_type, int port);
-scoped_ptr<Socket> CreateListeningTcpSocketWrapped(
+std::unique_ptr<Socket> CreateListeningTcpSocketWrapped(
     SbSocketAddressType address_type,
     int port);
 
 // Tries to accept a new connection from the given listening socket by checking,
 // yielding, and retrying for up to timeout. Returns kSbSocketInvalid if no
 // socket has been accepted in the given time.
-SbSocket AcceptBySpinning(SbSocket listen_socket, SbTime timeout);
-scoped_ptr<Socket> AcceptBySpinning(Socket* listen_socket, SbTime timeout);
+SbSocket AcceptBySpinning(SbSocket listen_socket, int64_t timeout);
+std::unique_ptr<Socket> AcceptBySpinning(Socket* listen_socket,
+                                         int64_t timeout);
 
 // Writes the given data to socket, spinning until success or error.
 bool WriteBySpinning(SbSocket socket,
                      const char* data,
                      int data_size,
-                     SbTime timeout);
+                     int64_t timeout);
 bool WriteBySpinning(Socket* socket,
                      const char* data,
                      int data_size,
-                     SbTime timeout);
+                     int64_t timeout);
 
 // Reads the given amount of data from socket, spinning until success or error.
 bool ReadBySpinning(SbSocket socket,
                     char* out_data,
                     int data_size,
-                    SbTime timeout);
+                    int64_t timeout);
 bool ReadBySpinning(Socket* socket,
                     char* out_data,
                     int data_size,
-                    SbTime timeout);
+                    int64_t timeout);
 
 // Transfers data between the two connected local sockets, spinning until |size|
 // has been transferred, or an error occurs.
@@ -115,15 +116,15 @@ struct ConnectedTrio {
 
 struct ConnectedTrioWrapped {
   ConnectedTrioWrapped() {}
-  ConnectedTrioWrapped(scoped_ptr<Socket> listen_socket,
-                       scoped_ptr<Socket> client_socket,
-                       scoped_ptr<Socket> server_socket)
-      : listen_socket(listen_socket.Pass()),
-        client_socket(client_socket.Pass()),
-        server_socket(server_socket.Pass()) {}
-  scoped_ptr<Socket> listen_socket;
-  scoped_ptr<Socket> client_socket;
-  scoped_ptr<Socket> server_socket;
+  ConnectedTrioWrapped(std::unique_ptr<Socket> listen_socket,
+                       std::unique_ptr<Socket> client_socket,
+                       std::unique_ptr<Socket> server_socket)
+      : listen_socket(std::move(listen_socket)),
+        client_socket(std::move(client_socket)),
+        server_socket(std::move(server_socket)) {}
+  std::unique_ptr<Socket> listen_socket;
+  std::unique_ptr<Socket> client_socket;
+  std::unique_ptr<Socket> server_socket;
 };
 
 // Creates and returns 3 TCP/IP sockets, a connected client and server, and a
@@ -132,26 +133,27 @@ struct ConnectedTrioWrapped {
 ConnectedTrio CreateAndConnect(SbSocketAddressType server_address_type,
                                SbSocketAddressType client_address_type,
                                int port,
-                               SbTime timeout);
-scoped_ptr<ConnectedTrioWrapped> CreateAndConnectWrapped(
+                               int64_t timeout);
+std::unique_ptr<ConnectedTrioWrapped> CreateAndConnectWrapped(
     SbSocketAddressType server_address_type,
     SbSocketAddressType client_address_type,
     int port,
-    SbTime timeout);
+    int64_t timeout);
 
-// Waits on the given waiter, and returns the elapsed time.
-SbTimeMonotonic TimedWait(SbSocketWaiter waiter);
+// Waits on the given waiter, and returns the elapsed time in microseconds.
+int64_t TimedWait(SbSocketWaiter waiter);
 
-// Waits on the given waiter, and returns the elapsed time.
-SbTimeMonotonic TimedWaitTimed(SbSocketWaiter waiter, SbTime timeout);
+// Waits on the given waiter, and returns the elapsed time in microseconds.
+int64_t TimedWaitTimed(SbSocketWaiter waiter, int64_t timeout);
 
-// Waits on the given waiter, and checks that it blocked between [lower, upper).
+// Waits on the given waiter, and checks that it blocked between
+// [lower_usec, upper_usec).
 static inline void WaitShouldBlockBetween(SbSocketWaiter waiter,
-                                          SbTime lower,
-                                          SbTime upper) {
-  SbTime time = TimedWait(waiter);
-  EXPECT_GT(upper, time);
-  EXPECT_LE(lower, time);
+                                          int64_t lower_usec,
+                                          int64_t upper_usec) {
+  int64_t time = TimedWait(waiter);
+  EXPECT_GT(upper_usec, time);
+  EXPECT_LE(lower_usec, time);
 }
 
 // Waits on the given waiter, and checks that it did not block for very long.
@@ -162,13 +164,14 @@ static inline void WaitShouldNotBlock(SbSocketWaiter waiter) {
 // Waits on the given waiter, and checks that it did not block for the given
 // timeout.
 static inline void TimedWaitShouldNotBlock(SbSocketWaiter waiter,
-                                           SbTime timeout) {
+                                           int64_t timeout) {
   EXPECT_GT(timeout, TimedWaitTimed(waiter, timeout));
 }
 
 // Waits on the given waiter, and checks that it did block for at least the
 // given timeout.
-static inline void TimedWaitShouldBlock(SbSocketWaiter waiter, SbTime timeout) {
+static inline void TimedWaitShouldBlock(SbSocketWaiter waiter,
+                                        int64_t timeout) {
   EXPECT_LE(timeout, TimedWaitTimed(waiter, timeout));
 }
 

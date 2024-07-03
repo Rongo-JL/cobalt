@@ -15,13 +15,14 @@
 #ifndef STARBOARD_SHARED_STARBOARD_PLAYER_FILTER_PUNCHOUT_VIDEO_RENDERER_SINK_H_
 #define STARBOARD_SHARED_STARBOARD_PLAYER_FILTER_PUNCHOUT_VIDEO_RENDERER_SINK_H_
 
+#include <pthread.h>
+
 #include "starboard/common/atomic.h"
 #include "starboard/common/mutex.h"
 #include "starboard/media.h"
 #include "starboard/player.h"
 #include "starboard/shared/internal_only.h"
 #include "starboard/shared/starboard/player/filter/video_renderer_sink.h"
-#include "starboard/time.h"
 #include "starboard/types.h"
 
 namespace starboard {
@@ -32,7 +33,7 @@ namespace filter {
 
 class PunchoutVideoRendererSink : public VideoRendererSink {
  public:
-  PunchoutVideoRendererSink(SbPlayer player, SbTime render_interval);
+  PunchoutVideoRendererSink(SbPlayer player, int64_t render_interval);
   ~PunchoutVideoRendererSink() override;
 
  private:
@@ -46,9 +47,9 @@ class PunchoutVideoRendererSink : public VideoRendererSink {
   static void* ThreadEntryPoint(void* context);
 
   SbPlayer player_;
-  SbTime render_interval_;
+  int64_t render_interval_;  // microseconds
   RenderCB render_cb_;
-  SbThread thread_;
+  pthread_t thread_;
   atomic_bool stop_requested_;
 
   Mutex mutex_;

@@ -77,8 +77,8 @@ bool CopyAndroidPlatformName(char* out_value, int value_length) {
   }
 
   char result_string[kStringBufferSize];
-  SbStringFormatF(result_string, kStringBufferSize, kPlatformNameFormat,
-                  version_string_buffer);
+  snprintf(result_string, kStringBufferSize, kPlatformNameFormat,
+           version_string_buffer);
 
   return CopyStringAndTestIfSuccess(out_value, value_length, result_string);
 }
@@ -145,7 +145,6 @@ bool SbSystemGetProperty(SbSystemPropertyId property_id,
           CopyStringAndTestIfSuccess(out_value, value_length, utf_str.c_str());
       return success;
     }
-#if SB_API_VERSION >= 14
     case kSbSystemPropertyAdvertisingId: {
       JniEnvExt* env = JniEnvExt::Get();
       ScopedLocalJavaRef<jstring> id_string(
@@ -162,7 +161,6 @@ bool SbSystemGetProperty(SbSystemPropertyId property_id,
       return CopyStringAndTestIfSuccess(out_value, value_length,
                                         limit_ad_tracking_enabled ? "1" : "0");
     }
-#endif
 #if SB_API_VERSION >= 15
     case kSbSystemPropertyDeviceType:
       return CopyStringAndTestIfSuccess(out_value, value_length,

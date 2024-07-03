@@ -1,5 +1,6 @@
 /* libFLAC - Free Lossless Audio Codec library
- * Copyright (C) 2004,2005,2006,2007  Josh Coalson
+ * Copyright (C) 2004-2009  Josh Coalson
+ * Copyright (C) 2011-2022  Xiph.Org Foundation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,9 +34,7 @@
 #define FLAC__CALLBACK_H
 
 #include "ordinals.h"
-#ifndef STARBOARD
 #include <stdlib.h> /* for size_t */
-#endif  // STARBOARD
 
 /** \file include/FLAC/callback.h
  *
@@ -166,15 +165,15 @@ typedef int (*FLAC__IOCallback_Close) (FLAC__IOHandle handle);
  *  required may be set to NULL.
  *
  *  If the seek requirement for an interface is optional, you can signify that
- *  a data sorce is not seekable by setting the \a seek field to \c NULL.
+ *  a data source is not seekable by setting the \a seek field to \c NULL.
  */
 typedef struct {
-	FLAC__IOCallback_Read read;
-	FLAC__IOCallback_Write write;
-	FLAC__IOCallback_Seek seek;
-	FLAC__IOCallback_Tell tell;
-	FLAC__IOCallback_Eof eof;
-	FLAC__IOCallback_Close close;
+  FLAC__IOCallback_Read read;   /**< See FLAC__IOCallbacks */
+  FLAC__IOCallback_Write write; /**< See FLAC__IOCallbacks */
+  FLAC__IOCallback_Seek seek;   /**< See FLAC__IOCallbacks */
+  FLAC__IOCallback_Tell tell;   /**< See FLAC__IOCallbacks */
+  FLAC__IOCallback_Eof eof;     /**< See FLAC__IOCallbacks */
+  FLAC__IOCallback_Close close; /**< See FLAC__IOCallbacks */
 } FLAC__IOCallbacks;
 
 /* \} */

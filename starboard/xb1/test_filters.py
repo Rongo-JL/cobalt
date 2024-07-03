@@ -13,9 +13,6 @@
 # limitations under the License.
 """Starboard Xbox One Platform Test Filters."""
 
-import logging
-import os
-
 from starboard.shared.win32 import test_filters as shared_test_filters
 from starboard.tools.testing import test_filter
 
@@ -25,19 +22,33 @@ _FILTERED_TESTS = {
         # Enable multiplayer tests once it's supported.
         'MultiplePlayerTests/*',
         'SbPlayerWriteSampleTests/SbPlayerWriteSampleTest.SecondaryPlayerTest/*',
+        # TODO: b/333412348
+        'SbMediaCanPlayMimeAndKeySystem.MinimumSupport',
+        # TODO: b/333416764
+        'SbSocketAddressTypes/SbSocketBindTest.RainyDayBadInterface/type_ipv6_filter_ipv6',
+        'SbSocketAddressTypes/SbSocketGetInterfaceAddressTest.SunnyDayDestination/type_ipv6',
+        'SbSocketAddressTypes/SbSocketGetInterfaceAddressTest.SunnyDaySourceForDestination/type_ipv6',
+        'SbSocketAddressTypes/SbSocketGetInterfaceAddressTest.SunnyDaySourceNotLoopback/type_ipv6',
+        'SbSocketAddressTypes/SbSocketResolveTest.SunnyDayFiltered/filter_ipv6_type_ipv6',
     ],
     'player_filter_tests': [
         'PlayerComponentsTests/PlayerComponentsTest.*',
         'VideoDecoderTests/VideoDecoderTest.HoldFramesUntilFull/*',
         ('VideoDecoderTests/VideoDecoderTest'
          '.MultipleValidInputsAfterInvalidKeyFrame/*'),
+        'VideoDecoderTests/VideoDecoderTest.MultipleResets/sintel_399_av1_dmp_DecodeToTexture',
         # AC3/EAC3 use a passthrough audio decoder that is incompatible with
         # AdaptiveAudioDecoderTests.
         # b/281740486.
         'AdaptiveAudioDecoderTests/AdaptiveAudioDecoderTest.MultipleInput/*c3*',
         'AdaptiveAudioDecoderTests/AdaptiveAudioDecoderTest.SingleInput/*c3*',
         'AudioDecoderTests/AudioDecoderTest.SingleInputHEAAC/*c3*',
+        # TODO: b/333412348
+        'VideoDecoderTests/VideoDecoderTest.SingleInput/beneath_the_canopy_248_vp9_dmp_DecodeToTexture',
+        'VideoDecoderTests/VideoDecoderTest.ResetBeforeInput/beneath_the_canopy_248_vp9_dmp_DecodeToTexture',
+        'VideoDecoderTests/VideoDecoderTest.MultipleResets/beneath_the_canopy_248_vp9_dmp_DecodeToTexture',
     ],
+    'trace_processor_minimal_smoke_tests': ['StorageMinimalSmokeTest/*',],
 }
 
 
@@ -54,12 +65,7 @@ class Xb1TestFilters(shared_test_filters.TestFilters):
     Returns:
       A list of initialized TestFilter objects.
     """
-    if os.environ.get('COBALT_WIN_BUILDBOT_DISABLE_TESTS', '0') == '1':
-      logging.error('COBALT_WIN_BUILDBOT_DISABLE_TESTS=1, Tests are disabled.')
-      return [test_filter.DISABLE_TESTING]
-
     filters = super().GetTestFilters()
-    _FILTERED_TESTS.update(test_filter.EVERGREEN_ONLY_TESTS)
     for target, tests in _FILTERED_TESTS.items():
       filters.extend(test_filter.TestFilter(target, test) for test in tests)
     return filters

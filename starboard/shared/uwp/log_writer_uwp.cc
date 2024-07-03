@@ -18,9 +18,9 @@
 
 #include "starboard/common/log.h"
 #include "starboard/common/mutex.h"
+#include "starboard/common/once.h"
 #include "starboard/common/semaphore.h"
 #include "starboard/common/string.h"
-#include "starboard/once.h"
 #include "starboard/shared/win32/wchar_utils.h"
 
 using Windows::Foundation::AsyncOperationCompletedHandler;
@@ -144,11 +144,11 @@ class LogWriterUWP : public ILogWriter {
 };
 }  // namespace.
 
-scoped_ptr<ILogWriter> CreateLogWriterUWP(Windows::Storage::StorageFolder ^
-                                              folder,
-                                          const char* filename) {
-  scoped_ptr<ILogWriter> output(new LogWriterUWP(folder, filename));
-  return output.Pass();
+std::unique_ptr<ILogWriter> CreateLogWriterUWP(Windows::Storage::StorageFolder ^
+                                                   folder,
+                                               const char* filename) {
+  std::unique_ptr<ILogWriter> output(new LogWriterUWP(folder, filename));
+  return output;
 }
 
 }  // namespace uwp

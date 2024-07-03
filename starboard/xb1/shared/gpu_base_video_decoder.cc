@@ -18,7 +18,7 @@
 #include <wrl/client.h>
 #include <algorithm>
 
-#include "starboard/once.h"
+#include "starboard/common/once.h"
 #include "starboard/shared/uwp/application_uwp.h"
 #include "starboard/shared/uwp/async_utils.h"
 #include "starboard/shared/uwp/decoder_utils.h"
@@ -142,14 +142,9 @@ class GpuVideoDecoderBase::GPUDecodeTargetPrivate
       info.format = kSbDecodeTargetFormat3PlaneYUVI420;
     } else {
       SB_DCHECK(image->bit_depth() == 10);
-#if SB_API_VERSION >= 14
       info.format = image->is_compacted()
                         ? kSbDecodeTargetFormat3Plane10BitYUVI420Compact
                         : kSbDecodeTargetFormat3Plane10BitYUVI420;
-#else   // SB_API_VERSION >= 14
-      SB_DCHECK(!image->is_compacted());
-      info.format = kSbDecodeTargetFormat3Plane10BitYUVI420;
-#endif  // SB_API_VERSION >= 14
     }
     info.is_opaque = true;
     info.width = image->width();
@@ -209,7 +204,7 @@ class GpuVideoDecoderBase::GPUDecodeTargetPrivate
     }
   }
 
-  SbTime timestamp() { return image_->timestamp(); }
+  int64_t timestamp() { return image_->timestamp(); }
 
   void ReleaseImage() {
     // Release the codec resource, while the D3D textures are still safe to use.
@@ -473,7 +468,7 @@ void GpuVideoDecoderBase::Reset() {
   if (decoder_thread_) {
     // Release stored frames to free frame buffers.
     decoder_status_cb_(kReleaseAllFrames, nullptr);
-    decoder_thread_->job_queue()->Schedule(
+    decoder_thread_->job_queue()->ScheduleAndWait(
         std::bind(&GpuVideoDecoderBase::DrainDecoder, this));
     decoder_thread_.reset();
   }
@@ -551,15 +546,18 @@ int GpuVideoDecoderBase::OnOutputRetrieved(
     return 0;
   }
 
-  SbTime timestamp = image->timestamp();
+  int64_t timestamp = image->timestamp();
   {
     ScopedLock input_queue_lock(written_inputs_mutex_);
     const auto iter = FindByTimestamp(written_inputs_, timestamp);
-    SB_DCHECK(iter != written_inputs_.cend());
-    if (is_hdr_video_) {
-      image->AttachColorMetadata((*iter)->video_stream_info().color_metadata);
+    // Reset might be called too early, cause clearing of written_inputs_ and
+    // absence of requested timestamp.
+    if (iter != written_inputs_.cend()) {
+      if (is_hdr_video_) {
+        image->AttachColorMetadata((*iter)->video_stream_info().color_metadata);
+      }
+      written_inputs_.erase(iter);
     }
-    written_inputs_.erase(iter);
   }
   scoped_refptr<VideoFrameImpl> frame(new VideoFrameImpl(
       timestamp, std::bind(&GpuVideoDecoderBase::DeleteVideoFrame, this,
@@ -666,8 +664,7 @@ void GpuVideoDecoderBase::DecodeEndOfStream() {
     ScopedLock pending_inputs_lock(pending_inputs_mutex_);
     if (!pending_inputs_.empty()) {
       decoder_thread_->job_queue()->Schedule(
-          std::bind(&GpuVideoDecoderBase::DecodeEndOfStream, this),
-          kSbTimeMillisecond);
+          std::bind(&GpuVideoDecoderBase::DecodeEndOfStream, this), 1000);
       return;
     }
   }
@@ -781,7 +778,7 @@ GpuVideoDecoderBase::GetAvailableFrameBuffer(uint16_t width, uint16_t height) {
         return nullptr;
       }
       is_resetting = decoder_behavior_.load() == kResettingDecoder;
-      frame_buffers_condition_.WaitTimed(50 * kSbTimeMillisecond);
+      frame_buffers_condition_.WaitTimed(50'000);  // 50ms
       continue;
     }
   }

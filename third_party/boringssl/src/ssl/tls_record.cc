@@ -119,7 +119,7 @@
 #include "../crypto/internal.h"
 
 
-namespace bssl {
+BSSL_NAMESPACE_BEGIN
 
 // kMaxEmptyRecords is the number of consecutive, empty records that will be
 // processed. Without this limit an attacker could send empty records at a
@@ -140,26 +140,15 @@ static const uint8_t kMaxWarningAlerts = 4;
 
 // ssl_needs_record_splitting returns one if |ssl|'s current outgoing cipher
 // state needs record-splitting and zero otherwise.
-static int ssl_needs_record_splitting(const SSL *ssl) {
+static bool ssl_needs_record_splitting(const SSL *ssl) {
 #if !defined(BORINGSSL_UNSAFE_FUZZER_MODE)
   return !ssl->s3->aead_write_ctx->is_null_cipher() &&
          ssl->s3->aead_write_ctx->ProtocolVersion() < TLS1_1_VERSION &&
          (ssl->mode & SSL_MODE_CBC_RECORD_SPLITTING) != 0 &&
          SSL_CIPHER_is_block_cipher(ssl->s3->aead_write_ctx->cipher());
 #else
-  return 0;
+  return false;
 #endif
-}
-
-int ssl_record_sequence_update(uint8_t *seq, size_t seq_len) {
-  for (size_t i = seq_len - 1; i < seq_len; i--) {
-    ++seq[i];
-    if (seq[i] != 0) {
-      return 1;
-    }
-  }
-  OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
-  return 0;
 }
 
 size_t ssl_record_prefix_len(const SSL *ssl) {
@@ -286,6 +275,13 @@ ssl_open_record_t tls_open_record(SSL *ssl, uint8_t *out_type,
     return skip_early_data(ssl, out_alert, *out_consumed);
   }
 
+  // Ensure the sequence number update does not overflow.
+  if (ssl->s3->read_sequence + 1 == 0) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
+    *out_alert = SSL_AD_INTERNAL_ERROR;
+    return ssl_open_record_error;
+  }
+
   // Decrypt the body in-place.
   if (!ssl->s3->aead_read_ctx->Open(
           out, type, version, ssl->s3->read_sequence, header,
@@ -301,11 +297,7 @@ ssl_open_record_t tls_open_record(SSL *ssl, uint8_t *out_type,
   }
 
   ssl->s3->skip_early_data = false;
-
-  if (!ssl_record_sequence_update(ssl->s3->read_sequence, 8)) {
-    *out_alert = SSL_AD_INTERNAL_ERROR;
-    return ssl_open_record_error;
-  }
+  ssl->s3->read_sequence++;
 
   // TLS 1.3 hides the record type inside the encrypted data.
   bool has_padding =
@@ -373,9 +365,9 @@ ssl_open_record_t tls_open_record(SSL *ssl, uint8_t *out_type,
   return ssl_open_record_success;
 }
 
-static int do_seal_record(SSL *ssl, uint8_t *out_prefix, uint8_t *out,
-                          uint8_t *out_suffix, uint8_t type, const uint8_t *in,
-                          const size_t in_len) {
+static bool do_seal_record(SSL *ssl, uint8_t *out_prefix, uint8_t *out,
+                           uint8_t *out_suffix, uint8_t type, const uint8_t *in,
+                           const size_t in_len) {
   SSLAEADContext *aead = ssl->s3->aead_write_ctx.get();
   uint8_t *extra_in = NULL;
   size_t extra_in_len = 0;
@@ -390,7 +382,7 @@ static int do_seal_record(SSL *ssl, uint8_t *out_prefix, uint8_t *out,
   if (!aead->SuffixLen(&suffix_len, in_len, extra_in_len) ||
       !aead->CiphertextLen(&ciphertext_len, in_len, extra_in_len)) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_RECORD_TOO_LARGE);
-    return 0;
+    return false;
   }
 
   assert(in == out || !buffers_alias(in, in_len, out, in_len));
@@ -411,15 +403,21 @@ static int do_seal_record(SSL *ssl, uint8_t *out_prefix, uint8_t *out,
   out_prefix[4] = ciphertext_len & 0xff;
   Span<const uint8_t> header = MakeSpan(out_prefix, SSL3_RT_HEADER_LENGTH);
 
-  if (!aead->SealScatter(out_prefix + SSL3_RT_HEADER_LENGTH, out, out_suffix,
-                         out_prefix[0], record_version, ssl->s3->write_sequence,
-                         header, in, in_len, extra_in, extra_in_len) ||
-      !ssl_record_sequence_update(ssl->s3->write_sequence, 8)) {
-    return 0;
+  // Ensure the sequence number update does not overflow.
+  if (ssl->s3->write_sequence + 1 == 0) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
+    return false;
   }
 
+  if (!aead->SealScatter(out_prefix + SSL3_RT_HEADER_LENGTH, out, out_suffix,
+                         out_prefix[0], record_version, ssl->s3->write_sequence,
+                         header, in, in_len, extra_in, extra_in_len)) {
+    return false;
+  }
+
+  ssl->s3->write_sequence++;
   ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_HEADER, header);
-  return 1;
+  return true;
 }
 
 static size_t tls_seal_scatter_prefix_len(const SSL *ssl, uint8_t type,
@@ -447,13 +445,15 @@ static bool tls_seal_scatter_suffix_len(const SSL *ssl, size_t *out_suffix_len,
     // TLS 1.3 adds an extra byte for encrypted record type.
     extra_in_len = 1;
   }
-  if (type == SSL3_RT_APPLICATION_DATA &&  // clang-format off
+  // clang-format off
+  if (type == SSL3_RT_APPLICATION_DATA &&
       in_len > 1 &&
       ssl_needs_record_splitting(ssl)) {
     // With record splitting enabled, the first byte gets sealed into a separate
     // record which is written into the prefix.
     in_len -= 1;
   }
+  // clang-format on
   return ssl->s3->aead_write_ctx->SuffixLen(out_suffix_len, in_len, extra_in_len);
 }
 
@@ -464,9 +464,9 @@ static bool tls_seal_scatter_suffix_len(const SSL *ssl, size_t *out_suffix_len,
 // returns one on success and zero on error. If enabled,
 // |tls_seal_scatter_record| implements TLS 1.0 CBC 1/n-1 record splitting and
 // may write two records concatenated.
-static int tls_seal_scatter_record(SSL *ssl, uint8_t *out_prefix, uint8_t *out,
-                                   uint8_t *out_suffix, uint8_t type,
-                                   const uint8_t *in, size_t in_len) {
+static bool tls_seal_scatter_record(SSL *ssl, uint8_t *out_prefix, uint8_t *out,
+                                    uint8_t *out_suffix, uint8_t type,
+                                    const uint8_t *in, size_t in_len) {
   if (type == SSL3_RT_APPLICATION_DATA && in_len > 1 &&
       ssl_needs_record_splitting(ssl)) {
     assert(ssl->s3->aead_write_ctx->ExplicitNonceLen() == 0);
@@ -478,13 +478,13 @@ static int tls_seal_scatter_record(SSL *ssl, uint8_t *out_prefix, uint8_t *out,
 
     if (!do_seal_record(ssl, out_prefix, split_body, split_suffix, type, in,
                         1)) {
-      return 0;
+      return false;
     }
 
     size_t split_record_suffix_len;
     if (!ssl->s3->aead_write_ctx->SuffixLen(&split_record_suffix_len, 1, 0)) {
       assert(false);
-      return 0;
+      return false;
     }
     const size_t split_record_len = prefix_len + 1 + split_record_suffix_len;
     assert(SSL3_RT_HEADER_LENGTH + ssl_cipher_get_record_split_len(
@@ -496,24 +496,25 @@ static int tls_seal_scatter_record(SSL *ssl, uint8_t *out_prefix, uint8_t *out,
     uint8_t tmp_prefix[SSL3_RT_HEADER_LENGTH];
     if (!do_seal_record(ssl, tmp_prefix, out + 1, out_suffix, type, in + 1,
                         in_len - 1)) {
-      return 0;
+      return false;
     }
     assert(tls_seal_scatter_prefix_len(ssl, type, in_len) ==
            split_record_len + SSL3_RT_HEADER_LENGTH - 1);
     OPENSSL_memcpy(out_prefix + split_record_len, tmp_prefix,
                    SSL3_RT_HEADER_LENGTH - 1);
     OPENSSL_memcpy(out, tmp_prefix + SSL3_RT_HEADER_LENGTH - 1, 1);
-    return 1;
+    return true;
   }
 
   return do_seal_record(ssl, out_prefix, out, out_suffix, type, in, in_len);
 }
 
-int tls_seal_record(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out_len,
-                    uint8_t type, const uint8_t *in, size_t in_len) {
+bool tls_seal_record(SSL *ssl, uint8_t *out, size_t *out_len,
+                     size_t max_out_len, uint8_t type, const uint8_t *in,
+                     size_t in_len) {
   if (buffers_alias(in, in_len, out, max_out_len)) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_OUTPUT_ALIASES_INPUT);
-    return 0;
+    return false;
   }
 
   const size_t prefix_len = tls_seal_scatter_prefix_len(ssl, type, in_len);
@@ -524,22 +525,22 @@ int tls_seal_record(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out_len,
   if (in_len + prefix_len < in_len ||
       prefix_len + in_len + suffix_len < prefix_len + in_len) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_RECORD_TOO_LARGE);
-    return 0;
+    return false;
   }
   if (max_out_len < in_len + prefix_len + suffix_len) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_BUFFER_TOO_SMALL);
-    return 0;
+    return false;
   }
 
   uint8_t *prefix = out;
   uint8_t *body = out + prefix_len;
   uint8_t *suffix = body + in_len;
   if (!tls_seal_scatter_record(ssl, prefix, body, suffix, type, in, in_len)) {
-    return 0;
+    return false;
   }
 
   *out_len = prefix_len + in_len + suffix_len;
-  return 1;
+  return true;
 }
 
 enum ssl_open_record_t ssl_process_alert(SSL *ssl, uint8_t *out_alert,
@@ -565,9 +566,14 @@ enum ssl_open_record_t ssl_process_alert(SSL *ssl, uint8_t *out_alert,
       return ssl_open_record_close_notify;
     }
 
-    // Warning alerts do not exist in TLS 1.3.
+    // Warning alerts do not exist in TLS 1.3, but RFC 8446 section 6.1
+    // continues to define user_canceled as a signal to cancel the handshake,
+    // without specifying how to handle it. JDK11 misuses it to signal
+    // full-duplex connection close after the handshake. As a workaround, skip
+    // user_canceled as in TLS 1.2. This matches NSS and OpenSSL.
     if (ssl->s3->have_version &&
-        ssl_protocol_version(ssl) >= TLS1_3_VERSION) {
+        ssl_protocol_version(ssl) >= TLS1_3_VERSION &&
+        alert_descr != SSL_AD_USER_CANCELLED) {
       *out_alert = SSL_AD_DECODE_ERROR;
       OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_ALERT);
       return ssl_open_record_error;
@@ -594,87 +600,7 @@ enum ssl_open_record_t ssl_process_alert(SSL *ssl, uint8_t *out_alert,
   return ssl_open_record_error;
 }
 
-OpenRecordResult OpenRecord(SSL *ssl, Span<uint8_t> *out,
-                            size_t *out_record_len, uint8_t *out_alert,
-                            const Span<uint8_t> in) {
-  // This API is a work in progress and currently only works for TLS 1.2 servers
-  // and below.
-  if (SSL_in_init(ssl) ||
-      SSL_is_dtls(ssl) ||
-      ssl_protocol_version(ssl) > TLS1_2_VERSION) {
-    assert(false);
-    *out_alert = SSL_AD_INTERNAL_ERROR;
-    return OpenRecordResult::kError;
-  }
-
-  Span<uint8_t> plaintext;
-  uint8_t type = 0;
-  const ssl_open_record_t result = tls_open_record(
-      ssl, &type, &plaintext, out_record_len, out_alert, in);
-
-  switch (result) {
-    case ssl_open_record_success:
-      if (type != SSL3_RT_APPLICATION_DATA && type != SSL3_RT_ALERT) {
-        *out_alert = SSL_AD_UNEXPECTED_MESSAGE;
-        return OpenRecordResult::kError;
-      }
-      *out = plaintext;
-      return OpenRecordResult::kOK;
-    case ssl_open_record_discard:
-      return OpenRecordResult::kDiscard;
-    case ssl_open_record_partial:
-      return OpenRecordResult::kIncompleteRecord;
-    case ssl_open_record_close_notify:
-      return OpenRecordResult::kAlertCloseNotify;
-    case ssl_open_record_error:
-      return OpenRecordResult::kError;
-  }
-  assert(false);
-  return OpenRecordResult::kError;
-}
-
-size_t SealRecordPrefixLen(const SSL *ssl, const size_t record_len) {
-  return tls_seal_scatter_prefix_len(ssl, SSL3_RT_APPLICATION_DATA, record_len);
-}
-
-size_t SealRecordSuffixLen(const SSL *ssl, const size_t plaintext_len) {
-  assert(plaintext_len <= SSL3_RT_MAX_PLAIN_LENGTH);
-  size_t suffix_len;
-  if (!tls_seal_scatter_suffix_len(ssl, &suffix_len, SSL3_RT_APPLICATION_DATA,
-                                   plaintext_len)) {
-    assert(false);
-    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-    return 0;
-  }
-  assert(suffix_len <= SSL3_RT_MAX_ENCRYPTED_OVERHEAD);
-  return suffix_len;
-}
-
-bool SealRecord(SSL *ssl, const Span<uint8_t> out_prefix,
-                const Span<uint8_t> out, Span<uint8_t> out_suffix,
-                const Span<const uint8_t> in) {
-  // This API is a work in progress and currently only works for TLS 1.2 servers
-  // and below.
-  if (SSL_in_init(ssl) ||
-      SSL_is_dtls(ssl) ||
-      ssl_protocol_version(ssl) > TLS1_2_VERSION) {
-    assert(false);
-    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-    return false;
-  }
-
-  if (out_prefix.size() != SealRecordPrefixLen(ssl, in.size()) ||
-      out.size() != in.size() ||
-      out_suffix.size() != SealRecordSuffixLen(ssl, in.size())) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_BUFFER_TOO_SMALL);
-    return false;
-  }
-  return tls_seal_scatter_record(ssl, out_prefix.data(), out.data(),
-                                 out_suffix.data(), SSL3_RT_APPLICATION_DATA,
-                                 in.data(), in.size());
-}
-
-}  // namespace bssl
+BSSL_NAMESPACE_END
 
 using namespace bssl;
 

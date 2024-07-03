@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <queue>
+#include <utility>
 
 #include "starboard/atomic.h"
 #include "starboard/shared/starboard/player/filter/audio_frame_discarder.h"
@@ -71,10 +72,10 @@ class AbstractWin32AudioDecoderImpl : public AbstractWin32AudioDecoder {
         expected_buffer_size_(
             GetExpectedBufferSize(codec_,
                                   audio_stream_info.number_of_channels)) {
-    scoped_ptr<MediaTransform> audio_decoder =
+    std::unique_ptr<MediaTransform> audio_decoder =
         CreateAudioTransform(audio_stream_info);
     impl_.reset(
-        new DecryptingDecoder("audio", audio_decoder.Pass(), drm_system));
+        new DecryptingDecoder("audio", std::move(audio_decoder), drm_system));
     switch (codec_) {
       case kSbMediaAudioCodecAc3:
         samples_per_second_ = kAc3SamplesPerSecond;
@@ -129,9 +130,10 @@ class AbstractWin32AudioDecoderImpl : public AbstractWin32AudioDecoder {
       SB_DCHECK(decoded_data_size == kEac3BufferSize);
     }
 
-    DecodedAudioPtr data_ptr(new DecodedAudio(
-        number_of_channels_, sample_type_, audio_frame_fmt_,
-        ConvertToSbTime(win32_timestamp), static_cast<int>(decoded_data_size)));
+    DecodedAudioPtr data_ptr(
+        new DecodedAudio(number_of_channels_, sample_type_, audio_frame_fmt_,
+                         ConvertWin32TimeToUsec(win32_timestamp),
+                         static_cast<int>(decoded_data_size)));
 
     std::copy(data, data + data_size, data_ptr->data());
     std::memset(data_ptr->data() + data_size, 0, decoded_data_size - data_size);
@@ -229,7 +231,7 @@ class AbstractWin32AudioDecoderImpl : public AbstractWin32AudioDecoder {
   const SbMediaAudioFrameStorageType audio_frame_fmt_;
 
   starboard::player::filter::AudioFrameDiscarder audio_frame_discarder_;
-  scoped_ptr<DecryptingDecoder> impl_;
+  std::unique_ptr<DecryptingDecoder> impl_;
   std::queue<DecodedAudioPtr> output_queue_;
   uint16_t number_of_channels_;
   atomic_bool heaac_detected_;
@@ -239,12 +241,12 @@ class AbstractWin32AudioDecoderImpl : public AbstractWin32AudioDecoder {
 
 }  // anonymous namespace.
 
-scoped_ptr<AbstractWin32AudioDecoder> AbstractWin32AudioDecoder::Create(
+std::unique_ptr<AbstractWin32AudioDecoder> AbstractWin32AudioDecoder::Create(
     SbMediaAudioFrameStorageType audio_frame_fmt,
     SbMediaAudioSampleType sample_type,
     const AudioStreamInfo& audio_stream_info,
     SbDrmSystem drm_system) {
-  return scoped_ptr<AbstractWin32AudioDecoder>(
+  return std::unique_ptr<AbstractWin32AudioDecoder>(
       new AbstractWin32AudioDecoderImpl(audio_frame_fmt, sample_type,
                                         audio_stream_info, drm_system));
 }

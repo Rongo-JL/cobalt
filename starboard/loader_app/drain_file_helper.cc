@@ -14,6 +14,8 @@
 
 #include "starboard/loader_app/drain_file_helper.h"
 
+#include <sys/stat.h>
+
 #include "starboard/common/file.h"
 #include "starboard/loader_app/drain_file.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -23,7 +25,7 @@ namespace loader_app {
 
 ScopedDrainFile::ScopedDrainFile(const std::string& dir,
                                  const std::string& app_key,
-                                 SbTime timestamp) {
+                                 int64_t timestamp) {
   app_key_.assign(app_key);
 
   path_.assign(dir);
@@ -31,7 +33,7 @@ ScopedDrainFile::ScopedDrainFile(const std::string& dir,
   path_.append(kDrainFilePrefix);
   path_.append(app_key);
   path_.append("_");
-  path_.append(std::to_string(timestamp / kDrainFileAgeUnit));
+  path_.append(std::to_string(timestamp / kDrainFileAgeUnitUsec));
 
   CreateFile();
 }
@@ -43,7 +45,8 @@ ScopedDrainFile::~ScopedDrainFile() {
 }
 
 bool ScopedDrainFile::Exists() const {
-  return SbFileExists(path_.c_str());
+  struct stat info;
+  return stat(path_.c_str(), &info) == 0;
 }
 
 const std::string& ScopedDrainFile::app_key() const {
@@ -55,9 +58,7 @@ const std::string& ScopedDrainFile::path() const {
 }
 
 void ScopedDrainFile::CreateFile() {
-  SbFileError error = kSbFileOk;
-  starboard::ScopedFile file(path_.c_str(), kSbFileCreateOnly | kSbFileWrite,
-                             NULL, &error);
+  starboard::ScopedFile file(path_.c_str(), O_CREAT | O_EXCL | O_WRONLY);
 
   EXPECT_TRUE(file.IsValid());
 }

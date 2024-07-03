@@ -28,7 +28,7 @@
 #include "cobalt/renderer/backend/egl/texture.h"
 #include "cobalt/renderer/backend/egl/utils.h"
 #if defined(ENABLE_GLIMP_TRACING)
-#include "glimp/tracing/tracing.h"  // nogncheck
+#include "internal/starboard/shared/glimp/tracing/tracing.h"
 #endif
 
 #include "cobalt/renderer/egl_and_gles.h"
@@ -39,7 +39,6 @@
 #else
 #include "cobalt/renderer/backend/egl/texture_data_cpu.h"
 #endif
-#include "starboard/common/optional.h"
 #include "starboard/configuration.h"
 
 namespace cobalt {
@@ -149,7 +148,10 @@ GraphicsSystemEGL::GraphicsSystemEGL(
     // mesa egl drivers still leak memory.
     ANNOTATE_SCOPED_MEMORY_LEAK;
     EGL_CALL(eglInitialize(display_, NULL, NULL));
-    LOG(INFO) << "eglInitialize returned " << EGL_CALL_SIMPLE(eglGetError());
+    EGLint result = EGL_CALL_SIMPLE(eglGetError());
+    if (result != EGL_SUCCESS) {
+      LOG(INFO) << "eglInitialize returned " << result;
+    }
   }
 
   // Setup our configuration to support RGBA and compatibility with PBuffer

@@ -50,8 +50,8 @@
 extern "C" {
 #endif
 
-#define SB_MEMORY_MAP_FAILED ((void*)-1)  // NOLINT(readability/casting)
-
+// TODO: Remove the definition once the memory_mapped_file.h extension
+// is deprecated.
 // The bitwise OR of these flags should be passed to SbMemoryMap to indicate
 // how the mapped memory can be used.
 typedef enum SbMemoryMapFlags {
@@ -60,14 +60,15 @@ typedef enum SbMemoryMapFlags {
   kSbMemoryMapProtectReserved = 0,
   kSbMemoryMapProtectRead = 1 << 0,   // Mapped memory can be read.
   kSbMemoryMapProtectWrite = 1 << 1,  // Mapped memory can be written to.
-#if SB_CAN(MAP_EXECUTABLE_MEMORY)
-  kSbMemoryMapProtectExec = 1 << 2,  // Mapped memory can be executed.
-#endif
+  kSbMemoryMapProtectExec = 1 << 2,   // Mapped memory can be executed.
   kSbMemoryMapProtectReadWrite =
       kSbMemoryMapProtectRead | kSbMemoryMapProtectWrite,
 } SbMemoryMapFlags;
 
 #if SB_API_VERSION < 16
+
+#define SB_MEMORY_MAP_FAILED ((void*)-1)  // NOLINT(readability/casting)
+
 static SB_C_FORCE_INLINE void SbAbortIfAllocationFailed(size_t requested_bytes,
                                                         void* address) {
   if (SB_UNLIKELY(requested_bytes > 0 && address == NULL)) {
@@ -178,8 +179,6 @@ SB_DEPRECATED_EXTERNAL(SB_EXPORT void SbMemoryFree(void* memory));
 // DO NOT CALL. Call SbMemoryDeallocateAligned(...) instead.
 SB_DEPRECATED_EXTERNAL(SB_EXPORT void SbMemoryFreeAligned(void* memory));
 
-#endif  // SB_API_VERSION < 16
-
 // Allocates |size_bytes| worth of physical memory pages and maps them into
 // an available virtual region. This function returns |SB_MEMORY_MAP_FAILED|
 // on failure. |NULL| is a valid return value.
@@ -219,6 +218,7 @@ SB_EXPORT bool SbMemoryProtect(void* virtual_address,
 // memory that has been written to and might be executed in the future.
 SB_EXPORT void SbMemoryFlush(void* virtual_address, int64_t size_bytes);
 #endif
+#endif  // SB_API_VERSION < 16
 
 #if SB_API_VERSION < 15
 

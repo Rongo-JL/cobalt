@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <utility>
 
 #include "starboard/common/log.h"
 #include "starboard/common/memory.h"
@@ -103,9 +104,9 @@ void AttachDrmDataToSample(ComPtr<IMFSample> sample,
 }  // namespace
 
 DecryptingDecoder::DecryptingDecoder(const std::string& type,
-                                     scoped_ptr<MediaTransform> decoder,
+                                     std::unique_ptr<MediaTransform> decoder,
                                      SbDrmSystem drm_system)
-    : type_(type), decoder_(decoder.Pass()) {
+    : type_(type), decoder_(std::move(decoder)) {
   SB_DCHECK(decoder_.get());
   drm_system_ = static_cast<DrmSystemPlayready*>(drm_system);
 }
@@ -148,7 +149,7 @@ bool DecryptingDecoder::TryWriteInputBuffer(
     int size = input_buffer->size() - bytes_to_skip_in_sample;
 
     std::int64_t win32_timestamp =
-        ConvertToWin32Time(input_buffer->timestamp());
+        ConvertUsecToWin32Time(input_buffer->timestamp());
     const uint8_t* iv = NULL;
     int iv_size = 0;
     const SbDrmSubSampleMapping* subsample_mapping = NULL;

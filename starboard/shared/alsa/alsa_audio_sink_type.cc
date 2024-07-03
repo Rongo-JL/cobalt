@@ -16,6 +16,9 @@
 
 #include <alsa/asoundlib.h>
 
+#include <pthread.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <vector>
 
@@ -23,11 +26,11 @@
 #include "starboard/common/condition_variable.h"
 #include "starboard/common/log.h"
 #include "starboard/common/mutex.h"
+#include "starboard/common/time.h"
 #include "starboard/configuration.h"
 #include "starboard/memory.h"
 #include "starboard/shared/alsa/alsa_util.h"
-#include "starboard/thread.h"
-#include "starboard/time.h"
+#include "starboard/shared/pthread/thread_create_priority.h"
 
 namespace starboard {
 namespace shared {
@@ -139,11 +142,11 @@ class AlsaAudioSink : public SbAudioSinkPrivate {
   int sampling_frequency_hz_;
   SbMediaAudioSampleType sample_type_;
 
-  SbThread audio_out_thread_;
+  pthread_t audio_out_thread_;
   starboard::Mutex mutex_;
   starboard::ConditionVariable creation_signal_;
 
-  SbTime time_to_wait_;
+  int64_t time_to_wait_;
 
   bool destroying_;
 
@@ -175,9 +178,9 @@ AlsaAudioSink::AlsaAudioSink(
       update_source_status_func_(update_source_status_func),
       consume_frames_func_(consume_frames_func),
       context_(context),
-      audio_out_thread_(kSbThreadInvalid),
+      audio_out_thread_(0),
       creation_signal_(mutex_),
-      time_to_wait_(kFramesPerRequest * kSbTimeSecond / sampling_frequency_hz /
+      time_to_wait_(kFramesPerRequest * 1'000'000LL / sampling_frequency_hz /
                     2),
       destroying_(false),
       frame_buffer_(frame_buffers[0]),
@@ -194,10 +197,9 @@ AlsaAudioSink::AlsaAudioSink(
          channels * kFramesPerRequest * GetSampleSize(sample_type));
 
   ScopedLock lock(mutex_);
-  audio_out_thread_ =
-      SbThreadCreate(0, kSbThreadPriorityRealTime, kSbThreadNoAffinity, true,
-                     "alsa_audio_out", &AlsaAudioSink::ThreadEntryPoint, this);
-  SB_DCHECK(SbThreadIsValid(audio_out_thread_));
+  pthread_create(&audio_out_thread_, nullptr, &AlsaAudioSink::ThreadEntryPoint,
+                 this);
+  SB_DCHECK(audio_out_thread_ != 0);
   creation_signal_.Wait();
 }
 
@@ -206,13 +208,15 @@ AlsaAudioSink::~AlsaAudioSink() {
     ScopedLock lock(mutex_);
     destroying_ = true;
   }
-  SbThreadJoin(audio_out_thread_, NULL);
+  pthread_join(audio_out_thread_, NULL);
 
   delete[] static_cast<uint8_t*>(silence_frames_);
 }
 
 // static
 void* AlsaAudioSink::ThreadEntryPoint(void* context) {
+  pthread_setname_np(pthread_self(), "alsa_audio_out");
+  starboard::shared::pthread::ThreadSetPriority(kSbThreadPriorityRealTime);
   SB_DCHECK(context);
   AlsaAudioSink* sink = reinterpret_cast<AlsaAudioSink*>(context);
   sink->AudioThreadFunc();
@@ -281,7 +285,7 @@ bool AlsaAudioSink::IdleLoop() {
       AlsaWriteFrames(playback_handle_, silence_frames_, kFramesPerRequest);
       AlsaDrain(playback_handle_);
     }
-    SbThreadSleep(time_to_wait_);
+    usleep(time_to_wait_);
   }
 
   return false;
@@ -324,7 +328,7 @@ bool AlsaAudioSink::PlaybackLoop() {
       WriteFrames(playback_rate, std::min(kFramesPerRequest, frames_in_buffer),
                   frames_in_buffer, offset_in_frames);
     } else {
-      SbThreadSleep(time_to_wait_);
+      usleep(time_to_wait_);
     }
   }
 
@@ -346,7 +350,7 @@ void AlsaAudioSink::WriteFrames(double playback_rate,
           IncrementPointerByBytes(frame_buffer_,
                                   offset_in_frames * bytes_per_frame),
           frames_to_buffer_end);
-      consume_frames_func_(consumed, SbTimeGetMonotonicNow(), context_);
+      consume_frames_func_(consumed, CurrentMonotonicTime(), context_);
       if (consumed != frames_to_buffer_end) {
         SB_DLOG(INFO) << "alsa::AlsaAudioSink exits write frames : consumed "
                       << consumed << " frames, with " << frames_to_buffer_end
@@ -363,7 +367,7 @@ void AlsaAudioSink::WriteFrames(double playback_rate,
                         IncrementPointerByBytes(
                             frame_buffer_, offset_in_frames * bytes_per_frame),
                         frames_to_write);
-    consume_frames_func_(consumed, SbTimeGetMonotonicNow(), context_);
+    consume_frames_func_(consumed, CurrentMonotonicTime(), context_);
   } else {
     // A very low quality resampler that simply shift the audio frames to play
     // at the right time.
@@ -392,7 +396,7 @@ void AlsaAudioSink::WriteFrames(double playback_rate,
 
     int consumed =
         AlsaWriteFrames(playback_handle_, &resample_buffer_[0], target_frames);
-    consume_frames_func_(consumed * playback_rate_, SbTimeGetMonotonicNow(),
+    consume_frames_func_(consumed * playback_rate_, CurrentMonotonicTime(),
                          context_);
   }
 }

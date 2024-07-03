@@ -38,9 +38,9 @@ void DialHttpResponse::AddHeader(const std::string& header,
 std::unique_ptr<net::HttpServerResponseInfo>
 DialHttpResponse::ToHttpServerResponseInfo() {
   if (!info_) {
-    info_.reset(new net::HttpServerResponseInfo());
+    info_.reset(
+        new net::HttpServerResponseInfo(net::HttpStatusCode(response_code_)));
   }
-  info_->SetStatusCode(net::HttpStatusCode(response_code_));
   info_->SetBody(body_, mime_type_);
   return std::move(info_);
 }

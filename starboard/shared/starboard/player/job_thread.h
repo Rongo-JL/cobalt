@@ -15,13 +15,15 @@
 #ifndef STARBOARD_SHARED_STARBOARD_PLAYER_JOB_THREAD_H_
 #define STARBOARD_SHARED_STARBOARD_PLAYER_JOB_THREAD_H_
 
+#include <pthread.h>
+
+#include <memory>
 #include <utility>
 
 #include "starboard/common/log.h"
 #include "starboard/common/scoped_ptr.h"
 #include "starboard/shared/internal_only.h"
 #include "starboard/shared/starboard/player/job_queue.h"
-#include "starboard/thread.h"
 
 #ifndef __cplusplus
 #error "Only C++ files can include this header."
@@ -50,16 +52,16 @@ class JobThread {
   }
 
   JobQueue::JobToken Schedule(const JobQueue::Job& job,
-                              SbTimeMonotonic delay = 0) {
+                              int64_t delay_usec = 0) {
     SB_DCHECK(job_queue_);
 
-    return job_queue_->Schedule(job, delay);
+    return job_queue_->Schedule(job, delay_usec);
   }
 
-  JobQueue::JobToken Schedule(JobQueue::Job&& job, SbTimeMonotonic delay = 0) {
+  JobQueue::JobToken Schedule(JobQueue::Job&& job, int64_t delay_usec = 0) {
     SB_DCHECK(job_queue_);
 
-    return job_queue_->Schedule(std::move(job), delay);
+    return job_queue_->Schedule(std::move(job), delay_usec);
   }
 
   void ScheduleAndWait(const JobQueue::Job& job) {
@@ -87,8 +89,8 @@ class JobThread {
   static void* ThreadEntryPoint(void* context);
   void RunLoop();
 
-  SbThread thread_;
-  scoped_ptr<JobQueue> job_queue_;
+  pthread_t thread_;
+  std::unique_ptr<JobQueue> job_queue_;
 };
 
 }  // namespace player

@@ -15,12 +15,16 @@
 #include "cobalt/h5vcc/h5vcc_accessibility.h"
 
 #include "base/command_line.h"
-#include "base/message_loop/message_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "cobalt/base/accessibility_settings_changed_event.h"
 #include "cobalt/base/accessibility_text_to_speech_settings_changed_event.h"
 #include "cobalt/browser/switches.h"
+#if SB_API_VERSION < 16
 #include "starboard/accessibility.h"
+#else  // SB_API_VERSION < 16
+#include "starboard/extension/accessibility.h"
+#endif  // SB_API_VERSION < 16
 #include "starboard/memory.h"
 
 namespace cobalt {
@@ -43,7 +47,7 @@ bool ShouldForceTextToSpeech() {
 
 H5vccAccessibility::H5vccAccessibility(base::EventDispatcher* event_dispatcher)
     : event_dispatcher_(event_dispatcher) {
-  task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  task_runner_ = base::SequencedTaskRunner::GetCurrentDefault();
   on_application_event_callback_ = base::Bind(
       &H5vccAccessibility::OnApplicationEvent, base::Unretained(this));
   event_dispatcher_->AddEventCallback(
@@ -74,11 +78,25 @@ void H5vccAccessibility::set_built_in_screen_reader(bool value) {
 bool H5vccAccessibility::high_contrast_text() const {
   SbAccessibilityDisplaySettings settings;
   memset(&settings, 0, sizeof(settings));
-
+#if SB_API_VERSION >= 16
+  auto accessibility_api =
+      static_cast<const StarboardExtensionAccessibilityApi*>(
+          SbSystemGetExtension(kStarboardExtensionAccessibilityName));
+  if (accessibility_api &&
+      strcmp(accessibility_api->name, kStarboardExtensionAccessibilityName) ==
+          0 &&
+      accessibility_api->version >= 1) {
+    if (!accessibility_api->GetDisplaySettings(&settings)) {
+      return false;
+    }
+  } else {
+    return false;
+  }
+#else   // SB_API_VERSION >= 16
   if (!SbAccessibilityGetDisplaySettings(&settings)) {
     return false;
   }
-
+#endif  // SB_API_VERSION >= 16
   return settings.is_high_contrast_text_enabled;
 }
 
@@ -89,39 +107,53 @@ bool H5vccAccessibility::text_to_speech() const {
   }
   SbAccessibilityTextToSpeechSettings settings;
   memset(&settings, 0, sizeof(settings));
-
+#if SB_API_VERSION >= 16
+  auto accessibility_api =
+      static_cast<const StarboardExtensionAccessibilityApi*>(
+          SbSystemGetExtension(kStarboardExtensionAccessibilityName));
+  if (accessibility_api &&
+      strcmp(accessibility_api->name, kStarboardExtensionAccessibilityName) ==
+          0 &&
+      accessibility_api->version >= 1) {
+    if (!accessibility_api->GetTextToSpeechSettings(&settings)) {
+      return false;
+    }
+  } else {
+    return false;
+  }
+#else   // SB_API_VERSION >= 16
   if (!SbAccessibilityGetTextToSpeechSettings(&settings)) {
     return false;
   }
-
+#endif  // SB_API_VERSION >= 16
   return settings.has_text_to_speech_setting &&
          settings.is_text_to_speech_enabled;
 }
 
 void H5vccAccessibility::AddTextToSpeechListener(
     const H5vccAccessibilityCallbackHolder& holder) {
-  DCHECK_EQ(base::ThreadTaskRunnerHandle::Get(), task_runner_);
+  DCHECK_EQ(base::SequencedTaskRunner::GetCurrentDefault(), task_runner_);
   text_to_speech_listener_.reset(
       new H5vccAccessibilityCallbackReference(this, holder));
 }
 
 void H5vccAccessibility::AddHighContrastTextListener(
     const H5vccAccessibilityCallbackHolder& holder) {
-  DCHECK_EQ(base::ThreadTaskRunnerHandle::Get(), task_runner_);
+  DCHECK_EQ(base::SequencedTaskRunner::GetCurrentDefault(), task_runner_);
   high_contrast_text_listener_.reset(
       new H5vccAccessibilityCallbackReference(this, holder));
 }
 
 void H5vccAccessibility::OnApplicationEvent(const base::Event* event) {
   // This method should be called from the application event thread.
-  DCHECK_NE(base::ThreadTaskRunnerHandle::Get(), task_runner_);
+  DCHECK_NE(base::SequencedTaskRunner::GetCurrentDefault(), task_runner_);
   task_runner_->PostTask(
       FROM_HERE, base::Bind(&H5vccAccessibility::InternalOnApplicationEvent,
                             base::Unretained(this), event->GetTypeId()));
 }
 
 void H5vccAccessibility::InternalOnApplicationEvent(base::TypeId type) {
-  DCHECK_EQ(base::ThreadTaskRunnerHandle::Get(), task_runner_);
+  DCHECK_EQ(base::SequencedTaskRunner::GetCurrentDefault(), task_runner_);
   if (type == base::AccessibilitySettingsChangedEvent::TypeId() &&
       high_contrast_text_listener_) {
     high_contrast_text_listener_->value().Run();

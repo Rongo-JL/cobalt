@@ -53,6 +53,17 @@ class CobaltAndroidConfiguration(cobalt_configuration.CobaltConfiguration):
 
   # A map of failing or crashing tests per target.
   __FILTERED_TESTS = {  # pylint: disable=invalid-name
+      # TODO(b/330791951): re-enable filtered base_unittests.
+      'base_unittests': [
+          # TODO(b/342452253): Test is flaky.
+          'All/SingleThreadTaskExecutorTypedTest.RecursivePostsDoNotFloodPipe/default_pump',  # pylint: disable=line-too-long
+          'StackTraceTest.OutputToStream',
+          'StackTraceTest.TruncatedTrace',
+          'StackTraceTest.TraceStackFramePointersFromBuffer',
+          'FileTest.Length',
+          'TimeTest.FromExploded_MinMax',
+          'LapTimer.ThreadTicksUsageExample',
+      ],
       'layout_tests': [
           # Android relies of system fonts and some older Android builds do not
           # have the update (Emoji 11.0) NotoColorEmoji.ttf installed.
@@ -64,6 +75,15 @@ class CobaltAndroidConfiguration(cobalt_configuration.CobaltConfiguration):
             '5_2_use_system_fallback_if_no_matching_family_is_found_emoji'),
       ],
       'crypto_unittests': ['P224.*'],
+      'net_unittests': [
+        # TODO(b/342649087): Flaky tests from QuicheFileUtilsTest.
+        'QuicheFileUtilsTest.ReadFileContents',
+        'QuicheFileUtilsTest.EnumerateDirectoryRecursively',
+        # TODO(b/342454908): Flaky tests from QuicMemoryCacheBackendTest.
+        'QuicMemoryCacheBackendTest.ReadsCacheDir',
+        'QuicMemoryCacheBackendTest.UsesOriginalUrlOnly',
+        'QuicMemoryCacheBackendTest.UsesOriginalUrl',
+      ],
       'renderer_test': [
           # TODO(b/236034292): These tests load the wrong fonts sometimes.
           'PixelTest.SimpleTextInRed40PtChineseFont',

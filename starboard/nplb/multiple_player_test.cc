@@ -19,7 +19,7 @@
 #include "starboard/nplb/maximum_player_configuration_explorer.h"
 #include "starboard/nplb/player_test_fixture.h"
 #include "starboard/nplb/player_test_util.h"
-#include "starboard/nplb/thread_helpers.h"
+#include "starboard/nplb/posix_compliance/posix_thread_helpers.h"
 #include "starboard/testing/fake_graphics_context_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -36,7 +36,7 @@ typedef std::function<void(const SbPlayerTestConfig&,
                            FakeGraphicsContextProvider*)>
     MultiplePlayerTestFunctor;
 
-class PlayerThread : public AbstractTestThread {
+class PlayerThread : public posix::AbstractTestThread {
  public:
   explicit PlayerThread(const std::function<void()>& functor)
       : functor_(functor) {}
@@ -100,7 +100,7 @@ void WriteSamples(const SbPlayerTestConfig& player_config,
     return;
   }
 
-  const SbTime kDurationToPlay = kSbTimeMillisecond * 200;
+  const int64_t kDurationToPlay = 200'000;  // 200ms
 
   GroupedSamples samples;
   if (player_fixture.HasAudio()) {

@@ -16,6 +16,9 @@
 
 #include <pulse/pulseaudio.h>
 
+#include <pthread.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <memory>
 #include <vector>
@@ -24,11 +27,12 @@
 #include "starboard/common/atomic.h"
 #include "starboard/common/log.h"
 #include "starboard/common/mutex.h"
+#include "starboard/common/time.h"
+#include "starboard/shared/pthread/thread_create_priority.h"
 #include "starboard/shared/pulse/pulse_dynamic_load_dispatcher.h"
 #include "starboard/shared/starboard/audio_sink/audio_sink_internal.h"
 #include "starboard/shared/starboard/media/media_util.h"
 #include "starboard/thread.h"
-#include "starboard/time.h"
 
 #if defined(ADDRESS_SANITIZER)
 // By default, Leak Sanitizer and Address Sanitizer is expected to exist
@@ -50,8 +54,8 @@ namespace {
 
 using starboard::media::GetBytesPerSample;
 
-const SbTime kAudioIdleSleepInterval = 15 * kSbTimeMillisecond;
-const SbTime kAudioRunningSleepInterval = 5 * kSbTimeMillisecond;
+const int64_t kAudioIdleSleepIntervalUsec = 15'000;    // 15ms
+const int64_t kAudioRunningSleepIntervalUsec = 5'000;  // 5ms
 // The minimum number of frames that can be written to Pulse once. A small
 // number will lead to more CPU being used as the callbacks will be called more
 // frequently.
@@ -161,7 +165,7 @@ class PulseAudioSinkType : public SbAudioSinkPrivate::Type {
   pa_mainloop* mainloop_ = NULL;
   pa_context* context_ = NULL;
   Mutex mutex_;
-  SbThread audio_thread_ = kSbThreadInvalid;
+  pthread_t audio_thread_ = 0;
   bool destroying_ = false;
 };
 
@@ -276,7 +280,7 @@ bool PulseAudioSink::WriteFrameIfNecessary(pa_context* context) {
       SB_DCHECK(total_frames_played_ <= new_total_frames_played);
       int64_t consume = new_total_frames_played - total_frames_played_;
       if (consume > 0) {
-        consume_frames_func_(consume, SbTimeGetMonotonicNow(), context_);
+        consume_frames_func_(consume, CurrentMonotonicTime(), context_);
         total_frames_played_ = new_total_frames_played;
       }
     }
@@ -371,12 +375,12 @@ void PulseAudioSink::HandleRequest(size_t length) {
 PulseAudioSinkType::PulseAudioSinkType() {}
 
 PulseAudioSinkType::~PulseAudioSinkType() {
-  if (SbThreadIsValid(audio_thread_)) {
+  if (audio_thread_ != 0) {
     {
       ScopedLock lock(mutex_);
       destroying_ = true;
     }
-    SbThreadJoin(audio_thread_, NULL);
+    pthread_join(audio_thread_, NULL);
   }
   SB_DCHECK(sinks_.empty());
   if (context_) {
@@ -472,17 +476,16 @@ bool PulseAudioSinkType::Initialize() {
     context_ = NULL;
     return false;
   }
-  audio_thread_ = SbThreadCreate(0, kSbThreadPriorityRealTime,
-                                 kSbThreadNoAffinity, true, "pulse_audio",
-                                 &PulseAudioSinkType::ThreadEntryPoint, this);
-  SB_DCHECK(SbThreadIsValid(audio_thread_));
+  pthread_create(&audio_thread_, nullptr, &PulseAudioSinkType::ThreadEntryPoint,
+                 this);
+  SB_DCHECK(audio_thread_ != 0);
 
   return true;
 }
 
 bool PulseAudioSinkType::BelongToAudioThread() {
-  SB_DCHECK(SbThreadIsValid(audio_thread_));
-  return SbThreadIsCurrent(audio_thread_);
+  SB_DCHECK(audio_thread_ != 0);
+  return pthread_equal(pthread_self(), audio_thread_);
 }
 
 pa_stream* PulseAudioSinkType::CreateNewStream(
@@ -549,6 +552,10 @@ void PulseAudioSinkType::StateCallback(pa_context* context, void* userdata) {
 
 // static
 void* PulseAudioSinkType::ThreadEntryPoint(void* context) {
+  pthread_setname_np(pthread_self(), "pulse_audio");
+
+  shared::pthread::ThreadSetPriority(kSbThreadPriorityRealTime);
+
   SB_DCHECK(context);
   PulseAudioSinkType* type = static_cast<PulseAudioSinkType*>(context);
   type->AudioThreadFunc();
@@ -571,9 +578,9 @@ void PulseAudioSinkType::AudioThreadFunc() {
         pa_mainloop_iterate(mainloop_, 0, NULL);
       }
       if (has_running_sink) {
-        SbThreadSleep(kAudioRunningSleepInterval);
+        usleep(kAudioRunningSleepIntervalUsec);
       } else {
-        SbThreadSleep(kAudioIdleSleepInterval);
+        usleep(kAudioIdleSleepIntervalUsec);
       }
     }
   }

@@ -16,8 +16,8 @@
 
 #include <algorithm>
 
+#include "starboard/common/once.h"
 #include "starboard/configuration.h"
-#include "starboard/once.h"
 #include "starboard/thread.h"
 
 namespace starboard {
@@ -83,7 +83,7 @@ void OpenMaxComponent::Flush() {
 int OpenMaxComponent::WriteData(const void* data,
                                 int size,
                                 DataType type,
-                                SbTime timestamp) {
+                                int64_t timestamp) {
   int offset = 0;
 
   while (offset < size) {

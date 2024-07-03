@@ -15,6 +15,8 @@
 #ifndef STARBOARD_SHARED_STARBOARD_PLAYER_PLAYER_WORKER_H_
 #define STARBOARD_SHARED_STARBOARD_PLAYER_PLAYER_WORKER_H_
 
+#include <pthread.h>
+
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -29,8 +31,6 @@
 #include "starboard/shared/internal_only.h"
 #include "starboard/shared/starboard/player/input_buffer_internal.h"
 #include "starboard/shared/starboard/player/job_queue.h"
-#include "starboard/thread.h"
-#include "starboard/time.h"
 #include "starboard/window.h"
 
 namespace starboard {
@@ -46,7 +46,7 @@ namespace player {
 // they needn't maintain the thread and queue internally.
 class PlayerWorker {
  public:
-  typedef std::function<void(SbTime media_time,
+  typedef std::function<void(int64_t media_time,
                              int dropped_video_frames,
                              int ticket,
                              bool is_progressing)>
@@ -75,7 +75,7 @@ class PlayerWorker {
     typedef ::starboard::shared::starboard::player::InputBuffers InputBuffers;
 
     typedef std::function<
-        void(SbTime media_time, int dropped_video_frames, bool is_progressing)>
+        void(int64_t media_time, int dropped_video_frames, bool is_progressing)>
         UpdateMediaInfoCB;
     typedef std::function<SbPlayerState()> GetPlayerStateCB;
     typedef std::function<void(SbPlayerState player_state)> UpdatePlayerStateCB;
@@ -94,7 +94,7 @@ class PlayerWorker {
                                GetPlayerStateCB get_player_state_cb,
                                UpdatePlayerStateCB update_player_state_cb,
                                UpdatePlayerErrorCB update_player_error_cb) = 0;
-    virtual HandlerResult Seek(SbTime seek_to_time, int ticket) = 0;
+    virtual HandlerResult Seek(int64_t seek_to_time, int ticket) = 0;
     virtual HandlerResult WriteSamples(const InputBuffers& input_buffers,
                                        int* samples_written) = 0;
     virtual HandlerResult WriteEndOfStream(SbMediaType sample_type) = 0;
@@ -111,6 +111,8 @@ class PlayerWorker {
 
     virtual SbDecodeTarget GetCurrentDecodeTarget() = 0;
 
+    virtual void SetMaxVideoInputSize(int max_video_input_size) = 0;
+
    private:
     Handler(const Handler&) = delete;
     Handler& operator=(const Handler&) = delete;
@@ -119,7 +121,7 @@ class PlayerWorker {
   static PlayerWorker* CreateInstance(
       SbMediaAudioCodec audio_codec,
       SbMediaVideoCodec video_codec,
-      scoped_ptr<Handler> handler,
+      unique_ptr_alias<Handler> handler,
       UpdateMediaInfoCB update_media_info_cb,
       SbPlayerDecoderStatusFunc decoder_status_func,
       SbPlayerStatusFunc player_status_func,
@@ -129,7 +131,7 @@ class PlayerWorker {
 
   ~PlayerWorker();
 
-  void Seek(SbTime seek_to_time, int ticket) {
+  void Seek(int64_t seek_to_time, int ticket) {
     job_queue_->Schedule(
         std::bind(&PlayerWorker::DoSeek, this, seek_to_time, ticket));
   }
@@ -180,7 +182,7 @@ class PlayerWorker {
  private:
   PlayerWorker(SbMediaAudioCodec audio_codec,
                SbMediaVideoCodec video_codec,
-               scoped_ptr<Handler> handler,
+               unique_ptr_alias<Handler> handler,
                UpdateMediaInfoCB update_media_info_cb,
                SbPlayerDecoderStatusFunc decoder_status_func,
                SbPlayerStatusFunc player_status_func,
@@ -191,7 +193,7 @@ class PlayerWorker {
   PlayerWorker(const PlayerWorker&) = delete;
   PlayerWorker& operator=(const PlayerWorker&) = delete;
 
-  void UpdateMediaInfo(SbTime time, int dropped_video_frames, bool underflow);
+  void UpdateMediaInfo(int64_t time, int dropped_video_frames, bool underflow);
 
   SbPlayerState player_state() const { return player_state_; }
   void UpdatePlayerState(SbPlayerState player_state);
@@ -202,7 +204,7 @@ class PlayerWorker {
   static void* ThreadEntryPoint(void* context);
   void RunLoop();
   void DoInit();
-  void DoSeek(SbTime seek_to_time, int ticket);
+  void DoSeek(int64_t seek_to_time, int ticket);
   void DoWriteSamples(InputBuffers input_buffers);
   void DoWritePendingSamples();
   void DoWriteEndOfStream(SbMediaType sample_type);
@@ -214,12 +216,12 @@ class PlayerWorker {
 
   void UpdateDecoderState(SbMediaType type, SbPlayerDecoderState state);
 
-  SbThread thread_;
-  scoped_ptr<JobQueue> job_queue_;
+  pthread_t thread_;
+  std::unique_ptr<JobQueue> job_queue_;
 
   SbMediaAudioCodec audio_codec_;
   SbMediaVideoCodec video_codec_;
-  scoped_ptr<Handler> handler_;
+  unique_ptr_alias<Handler> handler_;
   UpdateMediaInfoCB update_media_info_cb_;
 
   SbPlayerDecoderStatusFunc decoder_status_func_;

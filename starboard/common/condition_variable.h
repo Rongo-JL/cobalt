@@ -20,14 +20,15 @@
 #ifndef STARBOARD_COMMON_CONDITION_VARIABLE_H_
 #define STARBOARD_COMMON_CONDITION_VARIABLE_H_
 
-#include "starboard/common/mutex.h"
+#include <pthread.h>
 #include "starboard/condition_variable.h"
-#include "starboard/time.h"
+
+#include "starboard/common/mutex.h"
 #include "starboard/types.h"
 
 namespace starboard {
 
-// Inline class wrapper for SbConditionVariable.
+// Inline class wrapper for pthread_cond_t.
 class ConditionVariable {
  public:
   explicit ConditionVariable(const Mutex& mutex);
@@ -39,15 +40,20 @@ class ConditionVariable {
 
   // Returns |true| if this condition variable was signaled. Otherwise |false|
   // means that the condition variable timed out. In either case the
-  // mutex has been re-acquired once this function returns.
-  bool WaitTimed(SbTime duration) const;
+  // mutex has been re-acquired once this function returns. The |duration| is
+  // microseconds.
+  bool WaitTimed(int64_t duration) const;
 
   void Broadcast() const;
   void Signal() const;
 
  private:
   const Mutex* mutex_;
+#if SB_API_VERSION < 16
   mutable SbConditionVariable condition_;
+#else
+  mutable pthread_cond_t condition_;
+#endif  // SB_API_VERSION < 16
 };
 
 }  // namespace starboard

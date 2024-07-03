@@ -23,7 +23,8 @@
 #include <string>
 #include <vector>
 
-#include "starboard/accessibility.h"
+#include "starboard/extension/accessibility.h"
+
 #include "starboard/android/shared/file_internal.h"
 #include "starboard/android/shared/input_events_generator.h"
 #include "starboard/android/shared/jni_env_ext.h"
@@ -33,6 +34,7 @@
 #include "starboard/common/log.h"
 #include "starboard/common/mutex.h"
 #include "starboard/common/string.h"
+#include "starboard/common/time.h"
 #include "starboard/event.h"
 #include "starboard/key.h"
 #include "starboard/shared/starboard/audio_sink/audio_sink_internal.h"
@@ -100,6 +102,7 @@ ApplicationAndroid::ApplicationAndroid(ALooper* looper)
       QueueApplication(sb_event_handle_callback),
 #endif  // SB_API_VERSION >= 15
       last_is_accessibility_high_contrast_text_enabled_(false) {
+  handle_system_events_.store(true);
   // Initialize Time Zone early so that local time works correctly.
   // Called once here to help SbTimeZoneGet*Name()
   tzset();
@@ -206,21 +209,25 @@ bool ApplicationAndroid::DestroyWindow(SbWindow window) {
   return true;
 }
 
-Event* ApplicationAndroid::WaitForSystemEventWithTimeout(SbTime time) {
+Event* ApplicationAndroid::WaitForSystemEventWithTimeout(int64_t time) {
   // Limit the polling time in case some non-system event is injected.
-  const int kMaxPollingTimeMillisecond = 10;
+  const int kMaxPollingTimeMillisecond = 1000;
 
   // Convert from microseconds to milliseconds, taking the ceiling value.
   // If we take the floor, or round, then we end up busy looping every time
   // the next event time is less than one millisecond.
-  int timeout_millis = (time + kSbTimeMillisecond - 1) / kSbTimeMillisecond;
+  int timeout_millis =
+      (time <
+       std::min(kSbInt64Max - 1000, 1000 * static_cast<int64_t>(INT_MAX - 1)))
+          ? (time + 1000 - 1) / 1000
+          : INT_MAX;
   int looper_events;
-  int ident = ALooper_pollAll(
+  int ident = ALooper_pollOnce(
       std::min(std::max(timeout_millis, 0), kMaxPollingTimeMillisecond), NULL,
       &looper_events, NULL);
 
   // Ignore new system events while processing one.
-  handle_system_events_ = false;
+  handle_system_events_.store(false);
 
   switch (ident) {
     case kLooperIdAndroidCommand:
@@ -231,7 +238,7 @@ Event* ApplicationAndroid::WaitForSystemEventWithTimeout(SbTime time) {
       break;
   }
 
-  handle_system_events_ = true;
+  handle_system_events_.store(true);
 
   // Always return NULL since we already dispatched our own system events.
   return NULL;
@@ -249,16 +256,6 @@ void ApplicationAndroid::OnResume() {
 void ApplicationAndroid::OnSuspend() {
   JniEnvExt* env = JniEnvExt::Get();
   env->CallStarboardVoidMethodOrAbort("beforeSuspend", "()V");
-}
-
-void ApplicationAndroid::StartMediaPlaybackService() {
-  JniEnvExt* env = JniEnvExt::Get();
-  env->CallStarboardVoidMethodOrAbort("startMediaPlaybackService", "()V");
-}
-
-void ApplicationAndroid::StopMediaPlaybackService() {
-  JniEnvExt* env = JniEnvExt::Get();
-  env->CallStarboardVoidMethodOrAbort("stopMediaPlaybackService", "()V");
 }
 
 void ApplicationAndroid::ProcessAndroidCommand() {
@@ -335,9 +332,13 @@ void ApplicationAndroid::ProcessAndroidCommand() {
       // We assume that it can only change when our focus changes
       // (because the user exits and enters the app) so we check
       // for changes here.
+      auto accessibility_api =
+          static_cast<const StarboardExtensionAccessibilityApi*>(
+              SbSystemGetExtension(kStarboardExtensionAccessibilityName));
+      SB_CHECK(accessibility_api);  // We expect this to be always present
       SbAccessibilityDisplaySettings settings;
       memset(&settings, 0, sizeof(settings));
-      if (!SbAccessibilityGetDisplaySettings(&settings)) {
+      if (!accessibility_api->GetDisplaySettings(&settings)) {
         break;
       }
 
@@ -371,7 +372,7 @@ void ApplicationAndroid::ProcessAndroidCommand() {
           free(static_cast<void*>(deep_link));
         } else {
           SB_LOG(INFO) << "ApplicationAndroid Inject: kSbEventTypeLink";
-          Inject(new Event(kSbEventTypeLink, SbTimeGetMonotonicNow(), deep_link,
+          Inject(new Event(kSbEventTypeLink, CurrentMonotonicTime(), deep_link,
                            free));
         }
       }
@@ -433,6 +434,9 @@ void ApplicationAndroid::SendAndroidCommand(AndroidCommand::CommandType type,
 
 bool ApplicationAndroid::SendAndroidMotionEvent(
     const GameActivityMotionEvent* event) {
+  SB_LOG(INFO) << "Received Motion Event from Android OS."
+               << " source:" << event->source;
+
   bool result = false;
 
   ScopedLock lock(input_mutex_);
@@ -454,6 +458,13 @@ bool ApplicationAndroid::SendAndroidMotionEvent(
 
 bool ApplicationAndroid::SendAndroidKeyEvent(
     const GameActivityKeyEvent* event) {
+  // Find the value reference on
+  // https://developer.android.com/reference/android/view/KeyEvent
+  SB_LOG(INFO) << "Received Key Event from Android OS. "
+               << "keyCode:" << event->keyCode
+               << ", modifiers:" << event->modifiers
+               << ", source:" << event->source;
+
   bool result = false;
 
   ScopedLock lock(input_mutex_);
@@ -498,82 +509,6 @@ Java_dev_cobalt_coat_CobaltA11yHelper_nativeInjectKeyEvent(JNIEnv* env,
                                                            jobject unused_clazz,
                                                            jint key) {
   ApplicationAndroid::Get()->SendKeyboardInject(static_cast<SbKey>(key));
-}
-
-extern "C" SB_EXPORT_PLATFORM jboolean
-Java_dev_cobalt_coat_KeyboardInputConnection_nativeHasOnScreenKeyboard(
-    JniEnvExt* env,
-    jobject unused_this) {
-  return SbWindowOnScreenKeyboardIsSupported() ? JNI_TRUE : JNI_FALSE;
-}
-
-void ApplicationAndroid::SbWindowShowOnScreenKeyboard(SbWindow window,
-                                                      const char* input_text,
-                                                      int ticket) {
-  JniEnvExt* env = JniEnvExt::Get();
-  jobject j_keyboard_editor = env->CallStarboardObjectMethodOrAbort(
-      "getKeyboardEditor", "()Ldev/cobalt/coat/KeyboardEditor;");
-  env->CallVoidMethodOrAbort(j_keyboard_editor, "showKeyboard", "()V");
-  int* data = new int;
-  *data = ticket;
-  Inject(new Event(kSbEventTypeOnScreenKeyboardShown, data,
-                   &DeleteDestructor<int>));
-  return;
-}
-
-void ApplicationAndroid::SbWindowHideOnScreenKeyboard(SbWindow window,
-                                                      int ticket) {
-  JniEnvExt* env = JniEnvExt::Get();
-  jobject j_keyboard_editor = env->CallStarboardObjectMethodOrAbort(
-      "getKeyboardEditor", "()Ldev/cobalt/coat/KeyboardEditor;");
-  env->CallVoidMethodOrAbort(j_keyboard_editor, "hideKeyboard", "()V");
-  int* data = new int;
-  *data = ticket;
-  Inject(new Event(kSbEventTypeOnScreenKeyboardHidden, data,
-                   &DeleteDestructor<int>));
-  return;
-}
-
-void ApplicationAndroid::SbWindowUpdateOnScreenKeyboardSuggestions(
-    SbWindow window,
-    const std::vector<std::string>& suggestions,
-    int ticket) {
-  JniEnvExt* env = JniEnvExt::Get();
-  jobjectArray completions = env->NewObjectArray(
-      suggestions.size(),
-      env->FindClass("android/view/inputmethod/CompletionInfo"), 0);
-  jstring str;
-  jobject j_completion_info;
-  for (size_t i = 0; i < suggestions.size(); i++) {
-    str = env->NewStringUTF(suggestions[i].c_str());
-    j_completion_info =
-        env->NewObjectOrAbort("android/view/inputmethod/CompletionInfo",
-                              "(JILjava/lang/CharSequence;)V", i, i, str);
-    env->SetObjectArrayElement(completions, i, j_completion_info);
-  }
-  jobject j_keyboard_editor = env->CallStarboardObjectMethodOrAbort(
-      "getKeyboardEditor", "()Ldev/cobalt/coat/KeyboardEditor;");
-  env->CallVoidMethodOrAbort(j_keyboard_editor, "updateCustomCompletions",
-                             "([Landroid/view/inputmethod/CompletionInfo;)V",
-                             completions);
-  int* data = new int;
-  *data = ticket;
-  Inject(new Event(kSbEventTypeOnScreenKeyboardSuggestionsUpdated, data,
-                   &DeleteDestructor<int>));
-  return;
-}
-
-extern "C" SB_EXPORT_PLATFORM void
-Java_dev_cobalt_coat_KeyboardInputConnection_nativeSendText(
-    JniEnvExt* env,
-    jobject unused_clazz,
-    jstring text,
-    jboolean is_composing) {
-  if (text) {
-    std::string utf_str = env->GetStringStandardUTFOrAbort(text);
-    ApplicationAndroid::Get()->SbWindowSendInputEvent(utf_str.c_str(),
-                                                      is_composing);
-  }
 }
 
 void DeleteSbInputDataWithText(void* ptr) {
@@ -667,7 +602,7 @@ void ApplicationAndroid::OsNetworkStatusChange(bool became_online) {
   }
 }
 
-SbTimeMonotonic ApplicationAndroid::GetAppStartTimestamp() {
+int64_t ApplicationAndroid::GetAppStartTimestamp() {
   JniEnvExt* env = JniEnvExt::Get();
   jlong app_start_timestamp =
       env->CallStarboardLongMethodOrAbort("getAppStartTimestamp", "()J");
@@ -675,11 +610,11 @@ SbTimeMonotonic ApplicationAndroid::GetAppStartTimestamp() {
 }
 
 extern "C" SB_EXPORT_PLATFORM jlong
-Java_dev_cobalt_coat_StarboardBridge_nativeSbTimeGetMonotonicNow(
+Java_dev_cobalt_coat_StarboardBridge_nativeCurrentMonotonicTime(
     JNIEnv* env,
     jobject jcaller,
     jboolean online) {
-  return SbTimeGetMonotonicNow();
+  return CurrentMonotonicTime();
 }
 
 void ApplicationAndroid::SendDateTimeConfigurationChangedEvent() {

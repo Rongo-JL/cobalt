@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,15 +13,16 @@
 
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
-#include "starboard/types.h"
+#include "build/build_config.h"
 
 // Not defined on AIX by default.
-#if defined(OS_AIX)
+#if BUILDFLAG(IS_AIX)
 #define NAME_MAX 255
 #endif
 
@@ -32,8 +33,9 @@ const char kProcDir[] = "/proc";
 
 const char kStatFile[] = "stat";
 
+#if !defined(STARBOARD)
 FilePath GetProcPidDir(pid_t pid) {
-  return FilePath(kProcDir).Append(IntToString(pid));
+  return FilePath(kProcDir).Append(NumberToString(pid));
 }
 
 pid_t ProcDirSlotToPid(const char* d_name) {
@@ -55,11 +57,13 @@ pid_t ProcDirSlotToPid(const char* d_name) {
   }
   return pid;
 }
+#endif  // !defined(STARBOARD)
 
 bool ReadProcFile(const FilePath& file, std::string* buffer) {
+  DCHECK(FilePath(kProcDir).IsParent(file));
   buffer->clear();
   // Synchronously reading files in /proc is safe.
-  ThreadRestrictions::ScopedAllowIO allow_io;
+  ScopedAllowBlocking scoped_allow_blocking;
 
   if (!ReadFileToString(file, buffer)) {
     DLOG(WARNING) << "Failed to read " << file.MaybeAsASCII();
@@ -68,10 +72,12 @@ bool ReadProcFile(const FilePath& file, std::string* buffer) {
   return !buffer->empty();
 }
 
+#if !defined(STARBOARD)
 bool ReadProcStats(pid_t pid, std::string* buffer) {
   FilePath stat_file = internal::GetProcPidDir(pid).Append(kStatFile);
   return ReadProcFile(stat_file, buffer);
 }
+#endif  // !defined(STARBOARD)
 
 bool ParseProcStats(const std::string& stats_data,
                     std::vector<std::string>* proc_stats) {
@@ -97,7 +103,11 @@ bool ParseProcStats(const std::string& stats_data,
 
   proc_stats->clear();
   // PID.
+#if defined(STARBOARD)
+  proc_stats->push_back(stats_data.substr(0, open_parens_idx - 1));
+#else
   proc_stats->push_back(stats_data.substr(0, open_parens_idx));
+#endif
   // Process name without parentheses.
   proc_stats->push_back(
       stats_data.substr(open_parens_idx + 1,
@@ -107,8 +117,8 @@ bool ParseProcStats(const std::string& stats_data,
   std::vector<std::string> other_stats = SplitString(
       stats_data.substr(close_parens_idx + 2), " ",
       base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
-  for (size_t i = 0; i < other_stats.size(); ++i)
-    proc_stats->push_back(other_stats[i]);
+  for (const auto& i : other_stats)
+    proc_stats->push_back(i);
   return true;
 }
 
@@ -116,8 +126,8 @@ typedef std::map<std::string, std::string> ProcStatMap;
 void ParseProcStat(const std::string& contents, ProcStatMap* output) {
   StringPairs key_value_pairs;
   SplitStringIntoKeyValuePairs(contents, ' ', '\n', &key_value_pairs);
-  for (size_t i = 0; i < key_value_pairs.size(); ++i) {
-    output->insert(key_value_pairs[i]);
+  for (auto& i : key_value_pairs) {
+    output->insert(std::move(i));
   }
 }
 
@@ -150,16 +160,19 @@ int64_t ReadStatFileAndGetFieldAsInt64(const FilePath& stat_file,
   return GetProcStatsFieldAsInt64(proc_stats, field_num);
 }
 
+#if !defined(STARBOARD)
 int64_t ReadProcStatsAndGetFieldAsInt64(pid_t pid, ProcStatsFields field_num) {
   FilePath stat_file = internal::GetProcPidDir(pid).Append(kStatFile);
   return ReadStatFileAndGetFieldAsInt64(stat_file, field_num);
 }
+#endif  // !defined(STARBOARD)
 
 int64_t ReadProcSelfStatsAndGetFieldAsInt64(ProcStatsFields field_num) {
   FilePath stat_file = FilePath(kProcDir).Append("self").Append(kStatFile);
   return ReadStatFileAndGetFieldAsInt64(stat_file, field_num);
 }
 
+#if !defined(STARBOARD)
 size_t ReadProcStatsAndGetFieldAsSizeT(pid_t pid,
                                        ProcStatsFields field_num) {
   std::string stats_data;
@@ -170,6 +183,7 @@ size_t ReadProcStatsAndGetFieldAsSizeT(pid_t pid,
     return 0;
   return GetProcStatsFieldAsSizeT(proc_stats, field_num);
 }
+#endif  // !defined(STARBOARD)
 
 Time GetBootTime() {
   FilePath path("/proc/stat");
@@ -187,6 +201,7 @@ Time GetBootTime() {
   return Time::FromTimeT(btime);
 }
 
+#if !defined(STARBOARD)
 TimeDelta GetUserCpuTimeSinceBoot() {
   FilePath path("/proc/stat");
   std::string contents;
@@ -210,10 +225,10 @@ TimeDelta GetUserCpuTimeSinceBoot() {
   if (!StringToUint64(cpu[0], &user) || !StringToUint64(cpu[1], &nice))
     return TimeDelta();
 
-  return ClockTicksToTimeDelta(user + nice);
+  return ClockTicksToTimeDelta(checked_cast<int64_t>(user + nice));
 }
 
-TimeDelta ClockTicksToTimeDelta(int clock_ticks) {
+TimeDelta ClockTicksToTimeDelta(int64_t clock_ticks) {
   // This queries the /proc-specific scaling factor which is
   // conceptually the system hertz.  To dump this value on another
   // system, try
@@ -222,11 +237,11 @@ TimeDelta ClockTicksToTimeDelta(int clock_ticks) {
   //   0000040          17         100           3   134512692
   // which means the answer is 100.
   // It may be the case that this value is always 100.
-  static const int kHertz = sysconf(_SC_CLK_TCK);
+  static const long kHertz = sysconf(_SC_CLK_TCK);
 
-  return TimeDelta::FromMicroseconds(
-      Time::kMicrosecondsPerSecond * clock_ticks / kHertz);
+  return Microseconds(Time::kMicrosecondsPerSecond * clock_ticks / kHertz);
 }
+#endif  // !defined(STARBOARD)
 
 }  // namespace internal
 }  // namespace base

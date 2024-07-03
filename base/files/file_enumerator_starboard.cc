@@ -14,7 +14,10 @@
 
 #include "base/files/file_enumerator.h"
 
+#include <dirent.h>
+
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/threading/thread_restrictions.h"
 #include "starboard/common/string.h"
 #include "starboard/configuration_constants.h"
@@ -27,11 +30,11 @@ namespace base {
 // FileEnumerator::FileInfo ----------------------------------------------------
 
 FileEnumerator::FileInfo::FileInfo() {
-  memset(&sb_info_, 0, sizeof(sb_info_));
+  memset(&stat_, 0, sizeof(stat_));
 }
 
 bool FileEnumerator::FileInfo::IsDirectory() const {
-  return sb_info_.is_directory;
+  return S_ISDIR(stat_.st_mode);
 }
 
 FilePath FileEnumerator::FileInfo::GetName() const {
@@ -39,27 +42,32 @@ FilePath FileEnumerator::FileInfo::GetName() const {
 }
 
 int64_t FileEnumerator::FileInfo::GetSize() const {
-  return sb_info_.size;
+  return stat_.st_size;
 }
 
 base::Time FileEnumerator::FileInfo::GetLastModifiedTime() const {
-  return base::Time::FromDeltaSinceWindowsEpoch(
-      base::TimeDelta::FromMicroseconds(sb_info_.last_modified));
+  return base::Time::FromTimeT(stat_.st_mtime);
 }
 
 // FileEnumerator --------------------------------------------------------------
 
-FileEnumerator::FileEnumerator(const FilePath &root_path,
+FileEnumerator::FileEnumerator(const FilePath& root_path,
                                bool recursive,
                                int file_type)
-    : FileEnumerator(root_path, recursive, file_type, FilePath::StringType(),
+    : FileEnumerator(root_path,
+                     recursive,
+                     file_type,
+                     FilePath::StringType(),
                      FolderSearchPolicy::MATCH_ONLY) {}
 
-FileEnumerator::FileEnumerator(const FilePath &root_path,
+FileEnumerator::FileEnumerator(const FilePath& root_path,
                                bool recursive,
                                int file_type,
-                               const FilePath::StringType &pattern)
-    : FileEnumerator(root_path, recursive, file_type, pattern,
+                               const FilePath::StringType& pattern)
+    : FileEnumerator(root_path,
+                     recursive,
+                     file_type,
+                     pattern,
                      FolderSearchPolicy::MATCH_ONLY) {}
 
 FileEnumerator::FileEnumerator(const FilePath& root_path,
@@ -67,12 +75,26 @@ FileEnumerator::FileEnumerator(const FilePath& root_path,
                                int file_type,
                                const FilePath::StringType& pattern,
                                FolderSearchPolicy folder_search_policy)
+    : FileEnumerator(root_path,
+                     recursive,
+                     file_type,
+                     pattern,
+                     folder_search_policy,
+                     ErrorPolicy::IGNORE_ERRORS) {}
+
+FileEnumerator::FileEnumerator(const FilePath& root_path,
+                               bool recursive,
+                               int file_type,
+                               const FilePath::StringType& pattern,
+                               FolderSearchPolicy folder_search_policy,
+                               ErrorPolicy error_policy)
     : current_directory_entry_(0),
       root_path_(root_path),
       recursive_(recursive),
       file_type_(file_type),
       pattern_(pattern),
-      folder_search_policy_(folder_search_policy) {
+      folder_search_policy_(folder_search_policy),
+      error_policy_(error_policy) {
   // INCLUDE_DOT_DOT must not be specified if recursive.
   DCHECK(!(recursive && (INCLUDE_DOT_DOT & file_type_)));
   // The Windows version of this code appends the pattern to the root_path,
@@ -86,12 +108,14 @@ FileEnumerator::FileEnumerator(const FilePath& root_path,
 
 FileEnumerator::~FileEnumerator() = default;
 
-//static
+// static
 std::vector<FileEnumerator::FileInfo> FileEnumerator::ReadDirectory(
     const FilePath& source) {
-  AssertBlockingAllowed();
-  SbDirectory dir = SbDirectoryOpen(source.value().c_str(), NULL);
+  internal::AssertBlockingAllowed();
+  SbFileError error;
+  SbDirectory dir = SbDirectoryOpen(source.value().c_str(), &error);
   if (!SbDirectoryIsValid(dir)) {
+    error_ = static_cast<File::Error>(error);
     return std::vector<FileEnumerator::FileInfo>();
   }
 
@@ -101,9 +125,9 @@ std::vector<FileEnumerator::FileInfo> FileEnumerator::ReadDirectory(
 
     FilePath full_name = source.Append(filename);
     // TODO: Make sure this follows symlinks on relevant platforms.
-    if (!SbFileGetPathInfo(full_name.value().c_str(), &info.sb_info_)) {
+    if (stat(full_name.value().c_str(), &info.stat_) != 0) {
       DPLOG(ERROR) << "Couldn't SbFileGetInfo on " << full_name.value();
-      memset(&info.sb_info_, 0, sizeof(info.sb_info_));
+      memset(&info.stat_, 0, sizeof(info.stat_));
     }
     return info;
   };
@@ -129,12 +153,12 @@ std::vector<FileEnumerator::FileInfo> FileEnumerator::ReadDirectory(
     ret.push_back(GenerateEntry(".."));
   }
 
-  ignore_result(SbDirectoryClose(dir));
+  SbDirectoryClose(dir);
   return ret;
 }
 
 FilePath FileEnumerator::Next() {
-  AssertBlockingAllowed();
+  internal::AssertBlockingAllowed();
 
   ++current_directory_entry_;
 
@@ -163,22 +187,24 @@ FilePath FileEnumerator::Next() {
         continue;
       }
 
-      if (recursive_ && file_info.sb_info_.is_directory) {
+      if (recursive_ && file_info.IsDirectory()) {
         pending_paths_.push(full_path);
       }
 
-      if ((file_info.sb_info_.is_directory && (file_type_ & DIRECTORIES)) ||
-          (!file_info.sb_info_.is_directory && (file_type_ & FILES))) {
+      if ((file_info.IsDirectory() && (file_type_ & DIRECTORIES)) ||
+          (!file_info.IsDirectory() && (file_type_ & FILES)) ||
+          (file_type_ & NAMES_ONLY)) {
         directory_entries_.push_back(file_info);
       }
     }
   }
 
-  return
-      root_path_.Append(directory_entries_[current_directory_entry_].filename_);
+  return root_path_.Append(
+      directory_entries_[current_directory_entry_].filename_);
 }
 
 FileEnumerator::FileInfo FileEnumerator::GetInfo() const {
+  DCHECK(!(file_type_ & FileType::NAMES_ONLY));
   return directory_entries_[current_directory_entry_];
 }
 

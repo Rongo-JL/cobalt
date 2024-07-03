@@ -16,7 +16,11 @@
 #define BASE_STRING_UTIL_STARBOARD_H_
 
 #include <stdarg.h>
+#if SB_API_VERSION >= 16
+#include <stdio.h>
+#endif
 
+#include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "starboard/common/string.h"
@@ -25,28 +29,59 @@
 
 namespace base {
 
-#if defined(vsnprintf)
-#undef vsnprintf
-#endif
-
 inline int vsnprintf(char* buffer, size_t size,
                      const char* format, va_list arguments) {
-  return SbStringFormat(buffer, size, format, arguments);
+  return ::vsnprintf(buffer, size, format, arguments);
 }
 
-inline int strncmp16(const char16* s1, const char16* s2, size_t count) {
+inline int c16SbMemoryCompare(const char16* s1, const char16* s2, size_t n) {
+  // We cannot call memcmp because that changes the semantics.
+  while (n-- > 0) {
+    if (*s1 != *s2) {
+      // We cannot use (*s1 - *s2) because char16 is unsigned.
+      return ((*s1 < *s2) ? -1 : 1);
+    }
+    ++s1;
+    ++s2;
+  }
+  return 0;
+}
+
+inline const char16_t* as_u16cstr(const wchar_t* str) {
+  return reinterpret_cast<const char16_t*>(str);
+}
+
+inline const char16_t* as_u16cstr(WStringPiece str) {
+  return reinterpret_cast<const char16_t*>(str.data());
+}
+
+BASE_EXPORT bool IsStringASCII(WStringPiece str);
+
 #if defined(WCHAR_T_IS_UTF16)
-  return wcsncmp(s1, s2, count);
-#elif defined(WCHAR_T_IS_UTF32)
-  return c16SbMemoryCompare(s1, s2, count);
-#endif
+inline wchar_t* as_writable_wcstr(char16_t* str) {
+  return reinterpret_cast<wchar_t*>(str);
 }
 
-inline int vswprintf(wchar_t* buffer, size_t size,
-                     const wchar_t* format, va_list arguments) {
-  DCHECK(base::IsWprintfFormatPortable(format));
-  return SbStringFormatWide(buffer, size, format, arguments);
+inline wchar_t* as_writable_wcstr(std::u16string& str) {
+  return reinterpret_cast<wchar_t*>(data(str));
 }
+
+inline const wchar_t* as_wcstr(const char16_t* str) {
+  return reinterpret_cast<const wchar_t*>(str);
+}
+
+inline const wchar_t* as_wcstr(StringPiece16 str) {
+  return reinterpret_cast<const wchar_t*>(str.data());
+}
+
+inline char16_t* as_writable_u16cstr(wchar_t* str) {
+  return reinterpret_cast<char16_t*>(str);
+}
+
+inline char16_t* as_writable_u16cstr(std::wstring& str) {
+  return reinterpret_cast<char16_t*>(data(str));
+}
+#endif
 
 }  // namespace base
 

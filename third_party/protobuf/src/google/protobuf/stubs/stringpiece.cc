@@ -30,15 +30,12 @@
 #include <google/protobuf/stubs/stringpiece.h>
 
 #include <string.h>
-
-#ifdef STARBOARD
-#include "starboard/client_porting/poem/string_poem.h"
-#endif
-
 #include <algorithm>
 #include <climits>
 #include <string>
 #include <ostream>
+
+#include <google/protobuf/stubs/logging.h>
 
 namespace google {
 namespace protobuf {
@@ -120,7 +117,7 @@ stringpiece_ssize_type StringPiece::find(char c, size_type pos) const {
   }
   const char* result = static_cast<const char*>(
       memchr(ptr_ + pos, c, length_ - pos));
-  return result != NULL ? result - ptr_ : npos;
+  return result != nullptr ? result - ptr_ : npos;
 }
 
 stringpiece_ssize_type StringPiece::rfind(StringPiece s, size_type pos) const {

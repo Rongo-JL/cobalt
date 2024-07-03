@@ -55,7 +55,8 @@
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/task/current_thread.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "cobalt/math/size.h"
@@ -65,14 +66,13 @@
 #include "cobalt/media/base/sbplayer_interface.h"
 #include "cobalt/media/player/web_media_player.h"
 #include "cobalt/media/player/web_media_player_delegate.h"
-#include "third_party/chromium/media/base/demuxer.h"
-#include "third_party/chromium/media/base/eme_constants.h"
-#include "third_party/chromium/media/base/media_log.h"
+#include "media/base/demuxer.h"
+#include "media/base/eme_constants.h"
+#include "media/base/media_log.h"
 #include "url/gurl.h"
 
 #if defined(STARBOARD)
 
-#define COBALT_USE_PUNCHOUT
 #define COBALT_SKIP_SEEK_REQUEST_NEAR_END
 
 #endif  // defined(STARBOARD)
@@ -83,7 +83,7 @@ namespace media {
 class WebMediaPlayerProxy;
 
 class WebMediaPlayerImpl : public WebMediaPlayer,
-                           public base::MessageLoop::DestructionObserver,
+                           public base::CurrentThread::DestructionObserver,
                            public base::SupportsWeakPtr<WebMediaPlayerImpl> {
  public:
   // Construct a WebMediaPlayerImpl with reference to the client, and media
@@ -110,11 +110,11 @@ class WebMediaPlayerImpl : public WebMediaPlayer,
                      WebMediaPlayerClient* client,
                      WebMediaPlayerDelegate* delegate,
                      bool allow_resume_after_suspend,
-                     bool allow_batched_sample_write,
+                     int max_audio_samples_per_write,
                      bool force_punch_out_by_default,
 #if SB_API_VERSION >= 15
-                     int64_t audio_write_duration_local,
-                     int64_t audio_write_duration_remote,
+                     base::TimeDelta audio_write_duration_local,
+                     base::TimeDelta audio_write_duration_remote,
 #endif  // SB_API_VERSION >= 15
                      ::media::MediaLog* const media_log);
   ~WebMediaPlayerImpl() override;
@@ -247,7 +247,11 @@ class WebMediaPlayerImpl : public WebMediaPlayer,
 
   // Message loops for posting tasks between Chrome's main thread. Also used
   // for DCHECKs so methods calls won't execute in the wrong thread.
-  base::MessageLoop* main_loop_;
+  base::SequencedTaskRunner* task_runner_;
+
+  // Used to report telementry to UMA. Also used by the pipeline to record
+  // telemetry data.
+  MediaMetricsProvider media_metrics_provider_;
 
   scoped_refptr<Pipeline> pipeline_;
 
@@ -299,15 +303,13 @@ class WebMediaPlayerImpl : public WebMediaPlayer,
   WebMediaPlayerClient* const client_;
   WebMediaPlayerDelegate* const delegate_;
   const bool allow_resume_after_suspend_;
-  const bool allow_batched_sample_write_;
+  const int max_audio_samples_per_write_;
   const bool force_punch_out_by_default_;
   scoped_refptr<DecodeTargetProvider> decode_target_provider_;
 
   scoped_refptr<WebMediaPlayerProxy> proxy_;
 
   ::media::MediaLog* const media_log_;
-
-  MediaMetricsProvider media_metrics_provider_;
 
   bool is_local_source_;
 

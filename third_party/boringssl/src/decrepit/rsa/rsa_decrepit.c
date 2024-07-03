@@ -61,7 +61,7 @@
 #include <openssl/bn.h>
 
 
-RSA *RSA_generate_key(int bits, unsigned long e_value, void *callback,
+RSA *RSA_generate_key(int bits, uint64_t e_value, void *callback,
                       void *cb_arg) {
   assert(callback == NULL);
   assert(cb_arg == NULL);
@@ -71,7 +71,7 @@ RSA *RSA_generate_key(int bits, unsigned long e_value, void *callback,
 
   if (rsa == NULL ||
       e == NULL ||
-      !BN_set_word(e, e_value) ||
+      !BN_set_u64(e, e_value) ||
       !RSA_generate_key_ex(rsa, bits, e, NULL)) {
     goto err;
   }
@@ -85,13 +85,13 @@ err:
   return NULL;
 }
 
-int RSA_padding_add_PKCS1_PSS(RSA *rsa, uint8_t *EM, const uint8_t *mHash,
+int RSA_padding_add_PKCS1_PSS(const RSA *rsa, uint8_t *EM, const uint8_t *mHash,
                               const EVP_MD *Hash, int sLen) {
   return RSA_padding_add_PKCS1_PSS_mgf1(rsa, EM, mHash, Hash, NULL, sLen);
 }
 
-int RSA_verify_PKCS1_PSS(RSA *rsa, const uint8_t *mHash, const EVP_MD *Hash,
-                         const uint8_t *EM, int sLen) {
+int RSA_verify_PKCS1_PSS(const RSA *rsa, const uint8_t *mHash,
+                         const EVP_MD *Hash, const uint8_t *EM, int sLen) {
   return RSA_verify_PKCS1_PSS_mgf1(rsa, mHash, Hash, NULL, EM, sLen);
 }
 

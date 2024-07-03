@@ -28,17 +28,12 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifdef STARBOARD
-#include "starboard/client_porting/poem/string_poem.h"
-#endif
-
 #include <google/protobuf/stubs/bytestream.h>
 
-#ifndef STARBOARD
 #include <string.h>
-#endif  // STARBOARD
-
 #include <algorithm>
+
+#include <google/protobuf/stubs/logging.h>
 
 namespace google {
 namespace protobuf {
@@ -120,7 +115,7 @@ char* GrowingArrayByteSink::GetBuffer(size_t* nbytes) {
   ShrinkToFit();
   char* b = buf_;
   *nbytes = size_;
-  buf_ = NULL;
+  buf_ = nullptr;
   size_ = capacity_ = 0;
   return b;
 }

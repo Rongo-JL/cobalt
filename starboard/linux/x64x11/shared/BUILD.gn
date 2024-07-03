@@ -20,10 +20,17 @@ group("starboard_platform") {
   ]
 
   deps = [
-    "//third_party/libdav1d:dav1d",
-    "//third_party/libjpeg-turbo:libjpeg",
+    "//third_party/dav1d",
+    "//third_party/libjpeg_turbo:libjpeg",
     "//third_party/libvpx",
   ]
+}
+
+# TODO(b/348280514): Used on platforms where linker cannot resolve wrapped
+# functions
+static_library("starboard_egl_wrapped_functions") {
+  sources = [ "//starboard/shared/x11/egl_swap_buffers.cc" ]
+  configs += [ "//starboard/build/config:starboard_implementation" ]
 }
 
 static_library("starboard_platform_sources") {

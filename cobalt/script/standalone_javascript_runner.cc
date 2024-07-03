@@ -22,7 +22,7 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "base/task_runner.h"
+#include "base/task/task_runner.h"
 #include "cobalt/base/debugger_hooks.h"
 #include "cobalt/base/source_location.h"
 #include "cobalt/script/environment_settings.h"
@@ -42,7 +42,6 @@ StandaloneJavascriptRunner::StandaloneJavascriptRunner(
 }
 
 bool StandaloneJavascriptRunner::RunInteractive() {
-#if defined(COBALT_LINUX)
   if (!std::cin.eof() && std::cin.good()) {
     // Interactive prompt.
     std::cout << "> ";
@@ -55,9 +54,6 @@ bool StandaloneJavascriptRunner::RunInteractive() {
     }
     return true;
   }
-#else
-  NOTIMPLEMENTED();
-#endif
   return false;
 }
 

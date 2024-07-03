@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <sys/stat.h>
+
 #include <string>
 #include <vector>
 
@@ -43,17 +45,15 @@ class StorageTest : public ::testing::Test {
 void WriteBuffer(const char* file_path,
                  const char* buffer,
                  size_t buffer_size) {
-  SbFileError error;
-  ScopedFile file(file_path, kSbFileOpenAlways | kSbFileWrite, nullptr, &error);
-  ASSERT_EQ(kSbFileOk, error) << "Failed to open file for writing";
+  ScopedFile file(file_path, O_CREAT | O_WRONLY);
+  ASSERT_TRUE(file.IsValid()) << "Failed to open file for writing";
   int bytes_written = file.WriteAll(buffer, buffer_size);
   ASSERT_EQ(kBufSize, bytes_written);
 }
 
 void ReadBuffer(const char* file_path, char* buffer, size_t buffer_size) {
-  SbFileError error;
-  ScopedFile file(file_path, kSbFileOpenOnly | kSbFileRead, nullptr, &error);
-  ASSERT_EQ(kSbFileOk, error) << "Failed to open file for reading";
+  ScopedFile file(file_path, 0);
+  ASSERT_TRUE(file.IsValid()) << "Failed to open file for reading";
   int count = file.ReadAll(buffer, buffer_size);
   ASSERT_EQ(kBufSize, count);
 }
@@ -82,7 +82,8 @@ TEST_F(StorageTest, VerifyStorageDirectory) {
   }
 
   ASSERT_TRUE(SbFileDelete(file_path.data()));
-  ASSERT_FALSE(SbFileExists(file_path.data()));
+  struct stat info;
+  ASSERT_FALSE(stat(file_path.data(), &info) == 0);
 }
 
 }  // namespace

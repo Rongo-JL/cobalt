@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#if SB_API_VERSION < 16
+
 #include "starboard/thread.h"
 
 #include <pthread.h>
@@ -63,7 +65,7 @@ void* ThreadFunc(void* context) {
   void* real_context = thread_params->context;
   SbThreadAffinity affinity = thread_params->affinity;
   if (thread_params->name[0] != '\0') {
-    SbThreadSetName(thread_params->name);
+    pthread_setname_np(pthread_self(), thread_params->name);
   }
 
   starboard::shared::pthread::ThreadSetPriority(thread_params->priority);
@@ -146,3 +148,4 @@ SbThread SbThreadCreate(int64_t stack_size,
 
   return kSbThreadInvalid;
 }
+#endif  // SB_API_VERSION < 16

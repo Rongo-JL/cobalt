@@ -16,6 +16,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <sched.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -23,14 +24,24 @@
 #include <utility>
 
 #include "starboard/common/log.h"
+#include "starboard/common/time.h"
 #include "starboard/shared/posix/handle_eintr.h"
 #include "starboard/shared/posix/set_non_blocking_internal.h"
 #include "starboard/shared/posix/socket_internal.h"
-#include "starboard/shared/posix/time_internal.h"
 #include "starboard/thread.h"
 #include "third_party/libevent/event.h"
 
 namespace sbposix = starboard::shared::posix;
+
+#if defined(_GNU_SOURCE) || defined(_POSIX_VERSION)
+#if defined(PLAYSTATION_GENERATION) && (PLAYSTATION_GENERATION <= 5)
+#define USE_POSIX_PIPE 0
+#else
+#define USE_POSIX_PIPE 1
+#endif
+#else
+#define USE_POSIX_PIPE 0
+#endif
 
 namespace {
 // We do this because it's our style to use explicitly-sized ints when not just
@@ -47,8 +58,8 @@ SbSocketAddress GetIpv4Localhost() {
   return address;
 }
 
-SbSocket AcceptBySpinning(SbSocket server_socket, SbTime timeout) {
-  SbTimeMonotonic start = SbTimeGetMonotonicNow();
+SbSocket AcceptBySpinning(SbSocket server_socket, int64_t timeout) {
+  int64_t start = starboard::CurrentMonotonicTime();
   while (true) {
     SbSocket accepted_socket = SbSocketAccept(server_socket);
     if (SbSocketIsValid(accepted_socket)) {
@@ -59,22 +70,22 @@ SbSocket AcceptBySpinning(SbSocket server_socket, SbTime timeout) {
     SB_DCHECK(SbSocketGetLastError(server_socket) == kSbSocketPending);
 
     // Check if we have passed our timeout.
-    if (SbTimeGetMonotonicNow() - start >= timeout) {
+    if (starboard::CurrentMonotonicTime() - start >= timeout) {
       break;
     }
 
     // Just being polite.
-    SbThreadYield();
+    sched_yield();
   }
 
   return kSbSocketInvalid;
 }
 
-#if !SB_HAS(PIPE)
+#if !USE_POSIX_PIPE
 void GetSocketPipe(SbSocket* client_socket, SbSocket* server_socket) {
   int result;
   SbSocketError sb_socket_result;
-  const SbTimeMonotonic kTimeout = kSbTimeSecond / 15;
+  const int64_t kTimeoutUsec = 1'000'000 / 15;
   SbSocketAddress address = GetIpv4Localhost();
 
   // Setup a listening socket.
@@ -101,7 +112,7 @@ void GetSocketPipe(SbSocket* client_socket, SbSocket* server_socket) {
             sb_socket_result == kSbSocketPending);
 
   // Spin until the accept happens (or we get impatient).
-  *server_socket = AcceptBySpinning(listen_socket, kTimeout);
+  *server_socket = AcceptBySpinning(listen_socket, kTimeoutUsec);
   SB_DCHECK(SbSocketIsValid(*server_socket));
 
   result = SbSocketDestroy(listen_socket);
@@ -111,11 +122,11 @@ void GetSocketPipe(SbSocket* client_socket, SbSocket* server_socket) {
 }  // namespace
 
 SbSocketWaiterPrivate::SbSocketWaiterPrivate()
-    : thread_(SbThreadGetCurrent()),
+    : thread_(pthread_self()),
       base_(event_base_new()),
       waiting_(false),
       woken_up_(false) {
-#if SB_HAS(PIPE)
+#if USE_POSIX_PIPE
   int fds[2];
   int result = pipe(fds);
   SB_DCHECK(result == 0);
@@ -145,17 +156,26 @@ SbSocketWaiterPrivate::SbSocketWaiterPrivate()
 }
 
 SbSocketWaiterPrivate::~SbSocketWaiterPrivate() {
-  WaiteesMap::iterator it = waitees_.begin();
-  while (it != waitees_.end()) {
+#if SB_API_VERSION >= 16
+  i_WaiteesMap::iterator it = i_waitees_.begin();
+  while (it != i_waitees_.end()) {
     Waitee* waitee = it->second;
     ++it;  // Increment before removal.
-    Remove(waitee->socket);
+    Remove(waitee->i_socket, waitee->waiter);
+  }
+#endif  // SB_API_VERSION >= 16
+
+  sb_WaiteesMap::iterator it2 = sb_waitees_.begin();
+  while (it2 != sb_waitees_.end()) {
+    Waitee* waitee = it2->second;
+    ++it2;  // Increment before removal.
+    Remove(waitee->sb_socket, waitee->waiter);
   }
 
   event_del(&wakeup_event_);
   event_base_free(base_);
 
-#if SB_HAS(PIPE)
+#if USE_POSIX_PIPE
   close(wakeup_read_fd_);
   close(wakeup_write_fd_);
 #else
@@ -164,12 +184,111 @@ SbSocketWaiterPrivate::~SbSocketWaiterPrivate() {
 #endif
 }
 
+#if SB_API_VERSION >= 16
+bool SbSocketWaiterPrivate::Add(int socket,
+                                SbSocketWaiter waiter,
+                                void* context,
+                                SbPosixSocketWaiterCallback callback,
+                                int interests,
+                                bool persistent) {
+  SB_DCHECK(pthread_equal(pthread_self(), thread_));
+
+  if (socket < 0) {
+    SB_DLOG(ERROR) << __FUNCTION__ << ": Socket (" << socket << ") is invalid.";
+    return false;
+  }
+
+  if (!interests) {
+    SB_DLOG(ERROR) << __FUNCTION__ << ": No interests provided.";
+    return false;
+  }
+
+  // The policy is not to add a socket to a waiter if it is registered with
+  // another waiter.
+
+  // TODO: Since integer based socket fd doesn't have waiter information,
+  //       need to find a way to keep track whether this socket has been
+  //       registered with a waiter already.
+  //       At this moment, at least we can test if this specific socket
+  //       is already registered to this incoming waiter.
+  if (waiter->CheckSocketRegistered(socket)) {
+    SB_DLOG(ERROR) << __FUNCTION__ << ": Socket already has this waiter ("
+                   << this << ").";
+    return false;
+  }
+
+  Waitee* waitee =
+      new Waitee(this, socket, context, callback, interests, persistent);
+  AddWaitee(waitee);
+
+  int16_t events = 0;
+  if (interests & kSbSocketWaiterInterestRead) {
+    events |= EV_READ;
+  }
+
+  if (interests & kSbSocketWaiterInterestWrite) {
+    events |= EV_WRITE;
+  }
+
+  if (persistent) {
+    events |= EV_PERSIST;
+  }
+
+  event_set(&waitee->event, socket, events,
+            &SbSocketWaiterPrivate::LibeventSocketCallback, waitee);
+  event_base_set(base_, &waitee->event);
+  waiter = this;
+  event_add(&waitee->event, NULL);
+  return true;
+}
+
+bool SbSocketWaiterPrivate::Remove(int socket, SbSocketWaiter waiter) {
+  SB_DCHECK(pthread_equal(pthread_self(), thread_));
+  if (socket < 0) {
+    SB_DLOG(ERROR) << __FUNCTION__ << ": Socket (" << socket << ") is invalid.";
+    return false;
+  }
+
+  if (waiter != this) {
+    SB_DLOG(ERROR) << __FUNCTION__ << ": Socket (" << socket << ") "
+                   << "is watched by Waiter (" << waiter << "), "
+                   << "not this Waiter (" << this << ").";
+    SB_DSTACK(ERROR);
+    return false;
+  }
+
+  Waitee* waitee = RemoveWaitee(socket);
+  if (!waitee) {
+    return false;
+  }
+
+  event_del(&waitee->event);
+  waiter = kSbSocketWaiterInvalid;
+
+  delete waitee;
+  return true;
+}
+
+bool SbSocketWaiterPrivate::CheckSocketRegistered(int socket) {
+  if (socket < 0) {
+    SB_DLOG(ERROR) << __FUNCTION__ << ": Socket (" << socket << ") is invalid.";
+    return false;
+  }
+
+  if (GetWaitee(socket) == NULL) {
+    return false;
+  }
+
+  return true;
+}
+#endif  // SB_API_VERSION >= 16
+
 bool SbSocketWaiterPrivate::Add(SbSocket socket,
                                 void* context,
                                 SbSocketWaiterCallback callback,
                                 int interests,
                                 bool persistent) {
-  SB_DCHECK(SbThreadIsCurrent(thread_));
+  SB_DCHECK(pthread_equal(pthread_self(), thread_));
 
   if (!SbSocketIsValid(socket)) {
     SB_DLOG(ERROR) << __FUNCTION__ << ": Socket (" << socket << ") is invalid.";
@@ -225,8 +344,8 @@ bool SbSocketWaiterPrivate::Add(SbSocket socket,
   return true;
 }
 
-bool SbSocketWaiterPrivate::Remove(SbSocket socket) {
-  SB_DCHECK(SbThreadIsCurrent(thread_));
+bool SbSocketWaiterPrivate::Remove(SbSocket socket, SbSocketWaiter waiter) {
+  SB_DCHECK(pthread_equal(pthread_self(), thread_));
   if (!SbSocketIsValid(socket)) {
     SB_DLOG(ERROR) << __FUNCTION__ << ": Socket (" << socket << ") is invalid.";
     return false;
@@ -252,16 +371,28 @@ bool SbSocketWaiterPrivate::Remove(SbSocket socket) {
   return true;
 }
 
+bool SbSocketWaiterPrivate::CheckSocketRegistered(SbSocket socket) {
+  if (!SbSocketIsValid(socket)) {
+    SB_DLOG(ERROR) << __FUNCTION__ << ": Socket (" << socket << ") is invalid.";
+    return false;
+  }
+  if (GetWaitee(socket) == NULL) {
+    return false;
+  }
+
+  return true;
+}
+
 void SbSocketWaiterPrivate::Wait() {
-  SB_DCHECK(SbThreadIsCurrent(thread_));
+  SB_DCHECK(pthread_equal(pthread_self(), thread_));
 
   // We basically wait for the largest amount of time to achieve an indefinite
   // block.
-  WaitTimed(kSbTimeMax);
+  WaitTimed(kSbInt64Max);
 }
 
-SbSocketWaiterResult SbSocketWaiterPrivate::WaitTimed(SbTime duration) {
-  SB_DCHECK(SbThreadIsCurrent(thread_));
+SbSocketWaiterResult SbSocketWaiterPrivate::WaitTimed(int64_t duration_usec) {
+  SB_DCHECK(pthread_equal(pthread_self(), thread_));
 
   // The way to do this is apparently to create a timeout event, call WakeUp
   // inside that callback, and then just do a normal wait.
@@ -269,9 +400,10 @@ SbSocketWaiterResult SbSocketWaiterPrivate::WaitTimed(SbTime duration) {
   timeout_set(&event, &SbSocketWaiterPrivate::LibeventTimeoutCallback, this);
   event_base_set(base_, &event);
 
-  if (duration < kSbTimeMax) {
+  if (duration_usec < kSbInt64Max) {
     struct timeval tv;
-    ToTimevalDuration(duration, &tv);
+    tv.tv_sec = duration_usec / 1'000'000;
+    tv.tv_usec = duration_usec % 1'000'000;
     timeout_add(&event, &tv);
   }
 
@@ -283,7 +415,7 @@ SbSocketWaiterResult SbSocketWaiterPrivate::WaitTimed(SbTime duration) {
       woken_up_ ? kSbSocketWaiterResultWokenUp : kSbSocketWaiterResultTimedOut;
   woken_up_ = false;
 
-  if (duration < kSbTimeMax) {
+  if (duration_usec < kSbInt64Max) {
     // We clean this up, in case we were awakened early, to prevent a spurious
     // wake-up later.
     timeout_del(&event);
@@ -339,14 +471,25 @@ void SbSocketWaiterPrivate::HandleSignal(Waitee* waitee,
   // Remove the non-persistent waitee before calling the callback, so that we
   // can add another waitee in the callback if we need to. This is also why we
   // copy all the fields we need out of waitee.
-  SbSocket socket = waitee->socket;
-  void* context = waitee->context;
-  SbSocketWaiterCallback callback = waitee->callback;
-  if (!waitee->persistent) {
-    Remove(waitee->socket);
+  if (waitee->use_int_socket == 1) {
+#if SB_API_VERSION >= 16
+    int socket = waitee->i_socket;
+    void* context = waitee->context;
+    SbPosixSocketWaiterCallback callback = waitee->i_callback;
+    if (!waitee->persistent) {
+      Remove(waitee->i_socket, waitee->waiter);
+    }
+    callback(this, socket, context, interests);
+#endif  // SB_API_VERSION >= 16
+  } else {
+    SbSocket socket = waitee->sb_socket;
+    void* context = waitee->context;
+    SbSocketWaiterCallback callback = waitee->sb_callback;
+    if (!waitee->persistent) {
+      Remove(waitee->sb_socket, waitee->waiter);
+    }
+    callback(this, socket, context, interests);
   }
-
-  callback(this, socket, context, interests);
 }
 
 void SbSocketWaiterPrivate::HandleWakeUpRead() {
@@ -362,27 +505,53 @@ void SbSocketWaiterPrivate::HandleWakeUpRead() {
 }
 
 void SbSocketWaiterPrivate::AddWaitee(Waitee* waitee) {
-  waitees_.insert(std::make_pair(waitee->socket, waitee));
+  if (waitee->use_int_socket == 1) {
+    i_waitees_.insert(std::make_pair(waitee->i_socket, waitee));
+  } else {
+    sb_waitees_.insert(std::make_pair(waitee->sb_socket, waitee));
+  }
 }
 
-SbSocketWaiterPrivate::Waitee* SbSocketWaiterPrivate::GetWaitee(
-    SbSocket socket) {
-  WaiteesMap::iterator it = waitees_.find(socket);
-  if (it == waitees_.end()) {
+SbSocketWaiterPrivate::Waitee* SbSocketWaiterPrivate::GetWaitee(int socket) {
+  i_WaiteesMap::iterator it = i_waitees_.find(socket);
+  if (it == i_waitees_.end()) {
     return NULL;
   }
 
   return it->second;
 }
 
-SbSocketWaiterPrivate::Waitee* SbSocketWaiterPrivate::RemoveWaitee(
+SbSocketWaiterPrivate::Waitee* SbSocketWaiterPrivate::GetWaitee(
     SbSocket socket) {
-  WaiteesMap::iterator it = waitees_.find(socket);
-  if (it == waitees_.end()) {
+  sb_WaiteesMap::iterator it = sb_waitees_.find(socket);
+  if (it == sb_waitees_.end()) {
+    return NULL;
+  }
+
+  return it->second;
+}
+
+SbSocketWaiterPrivate::Waitee* SbSocketWaiterPrivate::RemoveWaitee(int socket) {
+  i_WaiteesMap::iterator it = i_waitees_.find(socket);
+  if (it == i_waitees_.end()) {
     return NULL;
   }
 
   Waitee* result = it->second;
-  waitees_.erase(it);
+  i_waitees_.erase(it);
   return result;
 }
+
+SbSocketWaiterPrivate::Waitee* SbSocketWaiterPrivate::RemoveWaitee(
+    SbSocket socket) {
+  sb_WaiteesMap::iterator it = sb_waitees_.find(socket);
+  if (it == sb_waitees_.end()) {
+    return NULL;
+  }
+
+  Waitee* result = it->second;
+  sb_waitees_.erase(it);
+  return result;
+}
+
+#undef USE_POSIX_PIPE

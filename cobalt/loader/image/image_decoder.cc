@@ -18,6 +18,7 @@
 #include <memory>
 
 #include "base/command_line.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "cobalt/configuration/configuration.h"
 #include "cobalt/loader/image/dummy_gif_image_decoder.h"
@@ -250,7 +251,8 @@ void ImageDecoder::Resume(render_tree::ResourceProvider* resource_provider) {
 }
 
 void ImageDecoder::SetDeletionPending() {
-  base::subtle::Acquire_Store(&is_deletion_pending_, true);
+  base::subtle::NoBarrier_Store(&is_deletion_pending_, true);
+  std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 
 void ImageDecoder::DecodeChunkInternal(const uint8* input_bytes, size_t size) {
@@ -387,12 +389,25 @@ bool ImageDecoder::AllowDecodingToMultiPlane() {
   // This also applies to skia based "hardware" rasterizers as the rendering
   // of multi plane images in such cases are not optimized, but this may be
   // improved in future.
+  std::string rasterizer_type =
+      configuration::Configuration::GetInstance()->CobaltRasterizerType();
+  auto command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kEnableSkiaRasterizer)) {
+    int enable_skia = 0;
+    base::StringToInt(
+        command_line->GetSwitchValueASCII(switches::kEnableSkiaRasterizer),
+        &enable_skia);
+    if (enable_skia) {
+      rasterizer_type = configuration::Configuration::kSkiaRasterizer;
+    } else {
+      rasterizer_type = configuration::Configuration::kGlesRasterizer;
+    }
+  }
+
   bool allow_image_decoding_to_multi_plane =
-      std::string(configuration::Configuration::GetInstance()
-                      ->CobaltRasterizerType()) == "direct-gles";
+      rasterizer_type == configuration::Configuration::kGlesRasterizer;
 
 #if !defined(COBALT_BUILD_TYPE_GOLD)
-  auto command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kAllowImageDecodingToMultiPlane)) {
     std::string value = command_line->GetSwitchValueASCII(
         switches::kAllowImageDecodingToMultiPlane);

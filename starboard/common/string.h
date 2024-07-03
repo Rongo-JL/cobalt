@@ -20,6 +20,9 @@
 #define STARBOARD_COMMON_STRING_H_
 
 #include <stdarg.h>
+#if SB_API_VERSION >= 16
+#include <stdio.h>
+#endif
 #include <cstring>
 #include <string>
 #include <vector>
@@ -29,13 +32,12 @@
 
 namespace starboard {
 
-SB_C_INLINE std::string FormatString(const char* format, ...)
-    SB_PRINTF_FORMAT(1, 2);
+inline std::string FormatString(const char* format, ...) SB_PRINTF_FORMAT(1, 2);
 
-SB_C_INLINE std::string FormatString(const char* format, ...) {
+inline std::string FormatString(const char* format, ...) {
   va_list arguments;
   va_start(arguments, format);
-  int expected_size = ::SbStringFormat(NULL, 0, format, arguments);
+  int expected_size = vsnprintf(NULL, 0, format, arguments);
   va_end(arguments);
 
   std::string result;
@@ -45,14 +47,14 @@ SB_C_INLINE std::string FormatString(const char* format, ...) {
 
   std::vector<char> buffer(expected_size + 1);
   va_start(arguments, format);
-  ::SbStringFormat(buffer.data(), buffer.size(), format, arguments);
+  vsnprintf(buffer.data(), buffer.size(), format, arguments);
   va_end(arguments);
   return std::string(buffer.data(), expected_size);
 }
 
-SB_C_INLINE std::string HexEncode(const void* data,
-                                  int size,
-                                  const char* delimiter = NULL) {
+inline std::string HexEncode(const void* data,
+                             int size,
+                             const char* delimiter = NULL) {
   const char kDecToHex[] = "0123456789abcdef";
 
   std::string result;

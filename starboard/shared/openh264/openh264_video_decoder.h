@@ -15,6 +15,7 @@
 #ifndef STARBOARD_SHARED_OPENH264_OPENH264_VIDEO_DECODER_H_
 #define STARBOARD_SHARED_OPENH264_OPENH264_VIDEO_DECODER_H_
 
+#include <memory>
 #include <queue>
 #include <string>
 #include <vector>
@@ -50,7 +51,7 @@ class VideoDecoder : public starboard::player::filter::VideoDecoder,
 
   // TODO: Verify if these values are correct.
   size_t GetPrerollFrameCount() const override { return 8; }
-  SbTime GetPrerollTimeout() const override { return kSbTimeMax; }
+  int64_t GetPrerollTimeout() const override { return kSbInt64Max; }
   size_t GetMaxNumberOfCachedFrames() const override { return 12; }
 
   void WriteInputBuffers(const InputBuffers& input_buffers) override;
@@ -118,7 +119,7 @@ class VideoDecoder : public starboard::player::filter::VideoDecoder,
   Mutex decode_target_mutex_;
 
   // Working thread to avoid lengthy decoding work block the player thread.
-  scoped_ptr<starboard::player::JobThread> decoder_thread_;
+  std::unique_ptr<starboard::player::JobThread> decoder_thread_;
 
   // Openh264 decode handler.
   ISVCDecoder* decoder_ = nullptr;

@@ -144,7 +144,7 @@ class XboxVideoCapabilities {
                                             60);
         hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 3840, 2160,
                                             30);
-        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 1920, 1080,
+        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 2560, 1440,
                                             60);
         // Vertical video resolutions
         hw_decoder_capabilities_.AddSdrRule(kSbMediaVideoCodecAv1, 2160, 3840,
@@ -153,7 +153,7 @@ class XboxVideoCapabilities {
                                             60);
         hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 2160, 3840,
                                             30);
-        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 1080, 1920,
+        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 2160, 3840,
                                             60);
         break;
       case starboard::shared::uwp::kXboxSeriesX:
@@ -167,20 +167,20 @@ class XboxVideoCapabilities {
         // Horizontal video resolutions
         hw_decoder_capabilities_.AddSdrRule(kSbMediaVideoCodecAv1, 3840, 2160,
                                             30);
-        hw_decoder_capabilities_.AddSdrRule(kSbMediaVideoCodecAv1, 2560, 1440,
+        hw_decoder_capabilities_.AddSdrRule(kSbMediaVideoCodecAv1, 3840, 2160,
                                             60);
-        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 2560, 1440,
+        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 3840, 2160,
                                             30);
-        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 1920, 1080,
+        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 2560, 1440,
                                             60);
         // Vertical video resolutions
         hw_decoder_capabilities_.AddSdrRule(kSbMediaVideoCodecAv1, 2160, 3840,
                                             30);
-        hw_decoder_capabilities_.AddSdrRule(kSbMediaVideoCodecAv1, 1440, 2560,
+        hw_decoder_capabilities_.AddSdrRule(kSbMediaVideoCodecAv1, 2160, 3840,
                                             60);
-        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 1440, 2560,
+        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 2160, 3840,
                                             30);
-        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 1080, 1920,
+        hw_decoder_capabilities_.AddHdrRule(kSbMediaVideoCodecAv1, 1440, 2560,
                                             60);
         break;
       default:
@@ -212,15 +212,6 @@ class XboxVideoCapabilities {
             bit_depth, primary_id, transfer_id, matrix_id)) {
       return is_supported;
     }
-
-#if SB_API_VERSION < 14
-    // AV1 decoder only supports YUVI420 compact texture format. The new format
-    // is only supported after
-    // 14.
-    if (codec == kSbMediaVideoCodecAv1) {
-      return false;
-    }
-#endif  // SB_API_VERSION >= 14
 
     is_supported &= ApplicationUwp::Get()->IsHdrSupported();
     is_supported &= bit_depth == 10;

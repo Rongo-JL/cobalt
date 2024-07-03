@@ -12,24 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <sched.h>
+#include <unistd.h>
+
 #include "starboard/common/atomic.h"
+#include "starboard/common/log.h"
+#include "starboard/common/time.h"
+
+#if SB_API_VERSION < 16
 #include "starboard/nplb/thread_helpers.h"
+#else
+#include "starboard/nplb/posix_compliance/posix_thread_helpers.h"
+#endif
 #include "starboard/thread.h"
-#include "starboard/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace starboard {
 namespace nplb {
 namespace {
 
+#if SB_API_VERSION < 16
 class CountingThread : public AbstractTestThread {
+#else
+class CountingThread : public posix::AbstractTestThread {
+#endif
  public:
   ~CountingThread() { Stop(); }
 
   void Run() override {
     while (!stop_.load()) {
       counter_.increment();
-      SbThreadSleep(kSbTimeMillisecond);
+      usleep(1000);
     }
   }
 
@@ -40,13 +53,13 @@ class CountingThread : public AbstractTestThread {
 
   int32_t GetCount() { return counter_.load(); }
 
-  bool IsCounting(SbTime timeout) {
+  bool IsCounting(int64_t timeout) {
     int32_t end_count = GetCount() + 2;
-    SbTime end_time = SbTimeGetNow() + timeout;
-    while (SbTimeGetNow() < end_time) {
+    int64_t end_time = CurrentPosixTime() + timeout;
+    while (CurrentPosixTime() < end_time) {
       if (GetCount() >= end_count)
         return true;
-      SbThreadYield();
+      sched_yield();
     }
     return false;
   }
@@ -60,7 +73,12 @@ TEST(ThreadSamplerTest, RainyDayCreateSamplerInvalidThread) {
   // Creating a sampler for an invalid thread should not succeed, and even
   // without without calling |SbThreadSamplerDelete| ASAN should not detect a
   // memory leak.
+
+#if SB_API_VERSION < 16
   SbThreadSampler sampler = SbThreadSamplerCreate(kSbThreadInvalid);
+#else
+  SbThreadSampler sampler = SbThreadSamplerCreate(0);
+#endif
   EXPECT_FALSE(SbThreadSamplerIsValid(sampler));
 }
 
@@ -117,15 +135,15 @@ TEST(ThreadSamplerTest, SunnyDayThreadFreeze) {
   EXPECT_TRUE(SbThreadSamplerIsValid(sampler));
 
   // Check that the thread is counting, with a long timeout to avoid flakiness.
-  EXPECT_TRUE(counting_thread.IsCounting(4 * kSbTimeSecond));
+  EXPECT_TRUE(counting_thread.IsCounting(4'000'000));
 
   // Check that the thread stops counting when frozen.
   EXPECT_NE(kSbThreadContextInvalid, SbThreadSamplerFreeze(sampler));
-  EXPECT_FALSE(counting_thread.IsCounting(100 * kSbTimeMillisecond));
+  EXPECT_FALSE(counting_thread.IsCounting(100'000));
 
   // Check that the thread is counting again when thawed.
   EXPECT_TRUE(SbThreadSamplerThaw(sampler));
-  EXPECT_TRUE(counting_thread.IsCounting(4 * kSbTimeSecond));
+  EXPECT_TRUE(counting_thread.IsCounting(4'000'000));
 
   SbThreadSamplerDestroy(sampler);
 }
@@ -144,7 +162,7 @@ TEST(ThreadSamplerTest, SunnyDayThreadContextPointers) {
 
   // Wait until the thread is counting before freezing it so that we know it's
   // in a valid stack frame.
-  EXPECT_TRUE(counting_thread.IsCounting(4 * kSbTimeSecond));
+  EXPECT_TRUE(counting_thread.IsCounting(4'000'000));
 
   SbThreadContext ctx = SbThreadSamplerFreeze(sampler);
   EXPECT_TRUE(SbThreadContextIsValid(ctx));

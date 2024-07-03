@@ -62,6 +62,8 @@ class Loader {
   // called.
   void Resume(render_tree::ResourceProvider* resource_provider);
 
+  void Conceal();
+
   bool DidFailFromTransientError() const;
 
   void LoadComplete(const base::Optional<std::string>& status);
@@ -83,7 +85,7 @@ class Loader {
       fetcher_handler_to_decoder_adaptor_;
   std::unique_ptr<Fetcher> fetcher_;
 
-  base::CancelableClosure fetcher_creator_error_closure_;
+  base::CancelableRepeatingClosure fetcher_creator_error_closure_;
   THREAD_CHECKER(thread_checker_);
 
   const OnCompleteFunction on_load_complete_;

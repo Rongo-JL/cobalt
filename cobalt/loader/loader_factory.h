@@ -46,7 +46,7 @@ class LoaderFactory : public ScriptLoaderFactory {
                 render_tree::ResourceProvider* resource_provider,
                 const base::DebuggerHooks& debugger_hooks,
                 size_t encoded_image_cache_capacity,
-                base::ThreadPriority loader_thread_priority);
+                base::ThreadType loader_thread_priority);
   ~LoaderFactory();
 
   // Creates a loader that fetches and decodes an image.
@@ -93,6 +93,7 @@ class LoaderFactory : public ScriptLoaderFactory {
   // previous resource provider must have been cleared before this method is
   // called.
   void Resume(render_tree::ResourceProvider* resource_provider);
+  void Conceal();
 
   // Resets a new resource provider for this loader factory to use.  The
   // previous resource provider must have been cleared before this method is
@@ -106,6 +107,7 @@ class LoaderFactory : public ScriptLoaderFactory {
  private:
   void SuspendActiveLoaders();
   void ResumeActiveLoaders(render_tree::ResourceProvider* resource_provider);
+  void ConcealActiveLoaders();
 
   // Used to cache the fetched raw data.  Note that currently the cache is only
   // used to cache Image data.  We may introduce more caches once we want to

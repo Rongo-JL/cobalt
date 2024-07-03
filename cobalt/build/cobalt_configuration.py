@@ -14,9 +14,34 @@
 """Base cobalt configuration for GYP."""
 
 from starboard.build import application_configuration
+from starboard.tools.testing import test_filter
 
 # The canonical Cobalt application name.
 APPLICATION_NAME = 'cobalt'
+
+# A map of failing or crashing tests per target
+_FILTERED_TESTS = {
+    'base_unittests': [
+        # TODO: b/329269559 These have flaky ASAN heap-use-after-free
+        # during metrics collection.
+        'All/SequenceManagerTest.DelayedTasksDontBadlyStarveNonDelayedWork_DifferentQueue/WithMessagePump',  # pylint: disable=line-too-long
+        'All/SequenceManagerTest.DelayedTasksDontBadlyStarveNonDelayedWork_DifferentQueue/WithMessagePumpAlignedWakeUps',  # pylint: disable=line-too-long
+        'All/SequenceManagerTest.DelayedTasksDontBadlyStarveNonDelayedWork_DifferentQueue/WithMockTaskRunner',  # pylint: disable=line-too-long
+        'All/SequenceManagerTest.DelayedTasksDontBadlyStarveNonDelayedWork_SameQueue/WithMessagePump',  # pylint: disable=line-too-long
+        'All/SequenceManagerTest.DelayedTasksDontBadlyStarveNonDelayedWork_SameQueue/WithMessagePumpAlignedWakeUps',  # pylint: disable=line-too-long
+        'All/SequenceManagerTest.DelayedTasksDontBadlyStarveNonDelayedWork_SameQueue/WithMockTaskRunner',  # pylint: disable=line-too-long
+        'All/SequenceManagerTest.SweepCanceledDelayedTasks_ManyTasks/WithMessagePump',  # pylint: disable=line-too-long
+        'All/SequenceManagerTest.SweepCanceledDelayedTasks_ManyTasks/WithMessagePumpAlignedWakeUps',  # pylint: disable=line-too-long
+        'All/SequenceManagerTest.SweepCanceledDelayedTasks_ManyTasks/WithMockTaskRunner',  # pylint: disable=line-too-long
+        # TODO: b/329507754 - Flaky after recent rebase.
+        'ScopedBlockingCallIOJankMonitoringTest.MultiThreadedOverlappedWindows',
+        'TaskEnvironmentTest.MultiThreadedMockTimeAndThreadPoolQueuedMode'
+    ],
+    'net_unittests': [
+        # TODO: b/329507754 - Flaky after recent rebase.
+        'CookieMonsterTest.DeleteExpiredPartitionedCookiesAfterTimeElapsed',
+    ]
+}
 
 
 class CobaltConfiguration(application_configuration.ApplicationConfiguration):
@@ -24,6 +49,12 @@ class CobaltConfiguration(application_configuration.ApplicationConfiguration):
 
   Cobalt per-platform configurations, if defined, must subclass from this class.
   """
+
+  def GetTestFilters(self):
+    filters = super().GetTestFilters()
+    for target, tests in _FILTERED_TESTS.items():
+      filters.extend(test_filter.TestFilter(target, test) for test in tests)
+    return filters
 
   def GetWebPlatformTestFilters(self):
     """Gets all tests to be excluded from a black box test run."""
@@ -102,6 +133,40 @@ class CobaltConfiguration(application_configuration.ApplicationConfiguration):
         'xhr/WebPlatformTest.Run/XMLHttpRequest_status_error_htm',
         'xhr/WebPlatformTest.Run/XMLHttpRequest_response_json_htm',
         'xhr/WebPlatformTest.Run/XMLHttpRequest_send_redirect_to_non_cors_htm',
+
+        # pylint: disable=line-too-long
+        # b/332367155
+        'websockets/WebPlatformTest.Run/websockets_closing_handshake_002_html',
+        'websockets/WebPlatformTest.Run/websockets_closing_handshake_004_html',
+        'websockets/WebPlatformTest.Run/websockets_binary_001_html',
+        'websockets/WebPlatformTest.Run/websockets_binary_002_html',
+        'websockets/WebPlatformTest.Run/websockets_binary_004_html',
+        'websockets/WebPlatformTest.Run/websockets_binary_005_html',
+        'websockets/WebPlatformTest.Run/websockets_constructor_006_html',
+        'websockets/WebPlatformTest.Run/websockets_constructor_009_html',
+        'websockets/WebPlatformTest.Run/websockets_constructor_013_html',
+        'websockets/WebPlatformTest.Run/websockets_constructor_022_html',
+        'websockets/WebPlatformTest.Run/websockets_cookies_001_html',
+        'websockets/WebPlatformTest.Run/websockets_cookies_006_html',
+        'websockets/WebPlatformTest.Run/websockets_extended_payload_length_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_bufferedAmount_bufferedAmount_arraybuffer_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_bufferedAmount_bufferedAmount_blob_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_bufferedAmount_bufferedAmount_getting_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_bufferedAmount_bufferedAmount_large_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_bufferedAmount_bufferedAmount_unicode_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_events_015_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_events_016_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_events_017_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_readyState_008_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_send_007_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_send_008_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_send_009_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_send_010_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_send_011_html',
+        'websockets/WebPlatformTest.Run/websockets_interfaces_WebSocket_send_012_html',
+        'websockets/WebPlatformTest.Run/websockets_keeping_connection_open_001_html',
+        'websockets/WebPlatformTest.Run/websockets_opening_handshake_003_html',
+        'websockets/WebPlatformTest.Run/websockets_opening_handshake_005_html',
     ]
     return filters
 
@@ -109,8 +174,8 @@ class CobaltConfiguration(application_configuration.ApplicationConfiguration):
   def GetTestTargets(self):
     return [
         'audio_test',
-        'base_test',
         'base_unittests',
+        'base_test',
         'bindings_test',
         'browser_test',
         'components_metrics_tests',
@@ -122,10 +187,11 @@ class CobaltConfiguration(application_configuration.ApplicationConfiguration):
         'cwrappers_test',
         'dom_parser_test',
         'dom_test',
-        'extension_test',
         # TODO(b/292127297): This target is not built for all platforms.
         # 'ffmpeg_demuxer_test',
+        'extension_test',
         'graphics_system_test',
+        'js_profiler_test',
         'layout_test',
         'layout_tests',
         'loader_test',
@@ -136,14 +202,13 @@ class CobaltConfiguration(application_configuration.ApplicationConfiguration):
         'media_test',
         'memory_store_test',
         'metrics_test',
-        'net_unittests',
         'network_test',
+        'net_unittests',
         'overlay_info_test',
         'persistent_settings_test',
         'png_utils_test',
-        'poem_unittests',
-        'renderer_test',
         'render_tree_test',
+        'renderer_test',
         'scroll_engine_tests',
         'speech_test',
         'storage_test',
@@ -151,8 +216,8 @@ class CobaltConfiguration(application_configuration.ApplicationConfiguration):
         'watchdog_test',
         'web_animations_test',
         'webdriver_test',
-        'websocket_test',
         'web_test',
+        'websocket_test',
         'worker_test',
         'xhr_test',
         'zip_unittests',

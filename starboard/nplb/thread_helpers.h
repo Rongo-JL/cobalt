@@ -15,12 +15,13 @@
 #ifndef STARBOARD_NPLB_THREAD_HELPERS_H_
 #define STARBOARD_NPLB_THREAD_HELPERS_H_
 
-#include "starboard/common/condition_variable.h"
+#if SB_API_VERSION < 16
+
 #include "starboard/common/mutex.h"
 #include "starboard/common/semaphore.h"
+#include "starboard/condition_variable.h"
 #include "starboard/configuration.h"
 #include "starboard/thread.h"
-#include "starboard/time.h"
 #include "starboard/types.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
@@ -143,7 +144,7 @@ struct TakeThenSignalContext {
   TestSemaphore do_signal;
   SbMutex mutex;
   SbConditionVariable condition;
-  SbTime delay_after_signal;
+  int64_t delay_after_signal;
 };
 
 // AbstractTestThread that is a bare bones class wrapper around Starboard
@@ -196,4 +197,5 @@ class AbstractTestThread {
 }  // namespace nplb
 }  // namespace starboard
 
+#endif  // SB_API_VERSION < 16
 #endif  // STARBOARD_NPLB_THREAD_HELPERS_H_

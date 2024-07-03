@@ -17,7 +17,6 @@
 
 #include <memory>
 
-#include "starboard/common/scoped_ptr.h"
 #include "starboard/configuration.h"
 #include "starboard/raspi/shared/dispmanx_util.h"
 #include "starboard/shared/internal_only.h"
@@ -68,7 +67,7 @@ class ApplicationDispmanx
   // --- QueueApplication overrides ---
   bool MayHaveSystemEvents() override;
   Event* PollNextSystemEvent() override;
-  Event* WaitForSystemEventWithTimeout(SbTime duration) override;
+  Event* WaitForSystemEventWithTimeout(int64_t duration) override;
   void WakeSystemEventWait() override;
 
   bool IsStartImmediate() override { return !HasPreloadSwitch(); }
@@ -85,10 +84,10 @@ class ApplicationDispmanx
   void ShutdownDispmanx();
 
   // The DISPMANX display.
-  scoped_ptr<DispmanxDisplay> display_;
+  std::unique_ptr<DispmanxDisplay> display_;
 
   // DISPMANX helper to render video frames.
-  scoped_ptr<DispmanxVideoRenderer> video_renderer_;
+  std::unique_ptr<DispmanxVideoRenderer> video_renderer_;
 
   // The single open window, if any.
   SbWindow window_;

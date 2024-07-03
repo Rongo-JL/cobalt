@@ -17,6 +17,7 @@
 
 #include <jni.h>
 
+#include <memory>
 #include <queue>
 #include <string>
 
@@ -45,7 +46,8 @@ class AudioDecoder
       AudioStreamInfo;
 
   AudioDecoder(const AudioStreamInfo& audio_stream_info,
-               SbDrmSystem drm_system);
+               SbDrmSystem drm_system,
+               bool enable_flush_during_seek);
   ~AudioDecoder() override;
 
   void Initialize(const OutputCB& output_cb, const ErrorCB& error_cb) override;
@@ -77,6 +79,7 @@ class AudioDecoder
 
   const AudioStreamInfo audio_stream_info_;
   const SbMediaAudioSampleType sample_type_;
+  const bool enable_flush_during_seek_;
 
   jint output_sample_rate_;
   jint output_channel_count_;
@@ -91,7 +94,7 @@ class AudioDecoder
   std::queue<scoped_refptr<DecodedAudio> > decoded_audios_;
 
   AudioFrameDiscarder audio_frame_discarder_;
-  scoped_ptr<MediaDecoder> media_decoder_;
+  std::unique_ptr<MediaDecoder> media_decoder_;
 };
 
 }  // namespace shared

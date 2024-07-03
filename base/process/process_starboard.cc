@@ -16,15 +16,32 @@
 
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
-
-namespace {
-base::ProcessId kStarboardFakeProcessId = 1;
-}
+#include "starboard/common/process.h"
 
 namespace base {
 
+ProcessId GetProcId(ProcessHandle) {
+  return starboard::kStarboardFakeProcessId;
+}
+
+ProcessId GetParentProcessId(ProcessHandle) {
+  return starboard::kStarboardFakeProcessId;
+}
+
 ProcessId GetCurrentProcId() {
-  return kStarboardFakeProcessId;
+  return starboard::kStarboardFakeProcessId;
+}
+
+ProcessHandle GetCurrentProcessHandle() {
+  return GetCurrentProcId();
+}
+
+bool Process::IsProcessBackgrounded() const {
+  return false;
+}
+
+Time Process::CreationTime() const {
+  return Time();
 }
 
 #ifndef STARBOARD
@@ -33,5 +50,19 @@ void Process::TerminateCurrentProcessImmediately(int exit_code) {
   std::_Exit(exit_code);
 }
 #endif  // !STARBOARD
+
+Process Process::Current() {
+  return Process();
+}
+
+Process::Process(ProcessHandle handle) {}
+Process::~Process() {}
+
+void Process::TerminateCurrentProcessImmediately(int) {}
+
+bool Process::IsValid() const { return false; }
+bool Process::WaitForExitWithTimeout(TimeDelta timeout, int* exit_code) const { return false; }
+bool Process::Terminate(int exit_code, bool wait) const { return false; }
+void Process::Close() {}
 
 }  // namespace base

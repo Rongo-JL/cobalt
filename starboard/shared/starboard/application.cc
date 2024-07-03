@@ -19,7 +19,6 @@
 #include "starboard/atomic.h"
 #include "starboard/common/condition_variable.h"
 #include "starboard/common/log.h"
-#include "starboard/common/scoped_ptr.h"
 #include "starboard/common/string.h"
 #include "starboard/configuration.h"
 #include "starboard/event.h"
@@ -71,7 +70,7 @@ Application* Application::g_instance = NULL;
 #if SB_API_VERSION >= 15
 Application::Application(SbEventHandleCallback sb_event_handle_callback)
     : error_level_(0),
-      thread_(SbThreadGetCurrent()),
+      thread_(pthread_self()),
       start_link_(NULL),
       state_(kStateUnstarted),
       sb_event_handle_callback_(sb_event_handle_callback) {
@@ -80,7 +79,7 @@ Application::Application(SbEventHandleCallback sb_event_handle_callback)
 #else
 Application::Application()
     : error_level_(0),
-      thread_(SbThreadGetCurrent()),
+      thread_(pthread_self()),
       start_link_(NULL),
       state_(kStateUnstarted) {
 #endif  // SB_API_VERSION >= 15
@@ -196,7 +195,7 @@ void Application::WindowSizeChanged(void* context,
 
 SbEventId Application::Schedule(SbEventCallback callback,
                                 void* context,
-                                SbTimeMonotonic delay) {
+                                int64_t delay) {
   SbEventId id = SbAtomicNoBarrier_Increment(&g_next_event_id, 1);
   InjectTimedEvent(new TimedEvent(id, callback, context, delay));
   return id;
@@ -226,13 +225,13 @@ void Application::SetStartLink(const char* start_link) {
   }
 }
 
-void Application::DispatchStart(SbTimeMonotonic timestamp) {
+void Application::DispatchStart(int64_t timestamp) {
   SB_DCHECK(IsCurrentThread());
   SB_DCHECK(state_ == kStateUnstarted);
   DispatchAndDelete(CreateInitialEvent(kSbEventTypeStart, timestamp));
 }
 
-void Application::DispatchPreload(SbTimeMonotonic timestamp) {
+void Application::DispatchPreload(int64_t timestamp) {
   SB_DCHECK(IsCurrentThread());
   SB_DCHECK(state_ == kStateUnstarted);
   DispatchAndDelete(CreateInitialEvent(kSbEventTypePreload, timestamp));
@@ -249,14 +248,14 @@ bool Application::DispatchAndDelete(Application::Event* event) {
   }
 
   // Ensure the event is deleted unless it is released.
-  scoped_ptr<Event> scoped_event(event);
+  std::unique_ptr<Event> scoped_event(event);
 
   // Ensure that we go through the the appropriate lifecycle events based on
   // the current state. If intermediate events need to be processed, use
   // HandleEventAndUpdateState() rather than Inject() for the intermediate
   // events because there may already be other lifecycle events in the queue.
 
-  SbTimeMonotonic timestamp = scoped_event->event->timestamp;
+  int64_t timestamp = scoped_event->event->timestamp;
   switch (scoped_event->event->type) {
     case kSbEventTypePreload:
       if (state() != kStateUnstarted) {
@@ -409,7 +408,7 @@ bool Application::DispatchAndDelete(Application::Event* event) {
 
 bool Application::HandleEventAndUpdateState(Application::Event* event) {
   // Ensure the event is deleted unless it is released.
-  scoped_ptr<Event> scoped_event(event);
+  std::unique_ptr<Event> scoped_event(event);
 
   // Call OnSuspend() and OnResume() before the event as needed.
   if (scoped_event->event->type == kSbEventTypeUnfreeze &&
@@ -479,7 +478,7 @@ void Application::CallTeardownCallbacks() {
 }
 
 Application::Event* Application::CreateInitialEvent(SbEventType type,
-                                                    SbTimeMonotonic timestamp) {
+                                                    int64_t timestamp) {
   SB_DCHECK(type == kSbEventTypePreload || type == kSbEventTypeStart);
   SbEventStartData* start_data = new SbEventStartData();
   memset(start_data, 0, sizeof(SbEventStartData));
@@ -499,9 +498,9 @@ Application::Event* Application::CreateInitialEvent(SbEventType type,
 int Application::RunLoop() {
   SB_DCHECK(command_line_);
   if (IsPreloadImmediate()) {
-    DispatchPreload(SbTimeGetMonotonicNow());
+    DispatchPreload(CurrentMonotonicTime());
   } else if (IsStartImmediate()) {
-    DispatchStart(SbTimeGetMonotonicNow());
+    DispatchStart(CurrentMonotonicTime());
   }
 
   for (;;) {

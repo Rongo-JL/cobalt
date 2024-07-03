@@ -17,10 +17,11 @@
 #include "internal.h"
 
 #if defined(STARBOARD)
+#include <pthread.h>
+#include <unistd.h>
 
 #include <openssl/mem.h>
 
-#include "starboard/once.h"
 #include "starboard/thread.h"
 
 namespace {
@@ -32,10 +33,11 @@ struct ThreadLocalEntry {
 };
 
 // One thread local key will point to an array of ThreadLocalEntry.
-SbThreadLocalKey g_thread_local_key = kSbThreadLocalKeyInvalid;
+static pthread_key_t g_thread_local_key = 0;
+static int g_thread_local_key_created = 0;
 
 // Control the creation of the global thread local key.
-SbOnceControl g_thread_local_once_control = SB_ONCE_INITIALIZER;
+pthread_once_t g_thread_local_once_control = PTHREAD_ONCE_INIT;
 
 void ThreadLocalDestructor(void* value) {
   if (value) {
@@ -50,7 +52,7 @@ void ThreadLocalDestructor(void* value) {
 }
 
 void ThreadLocalInit() {
-  g_thread_local_key = SbThreadCreateLocalKey(&ThreadLocalDestructor);
+  g_thread_local_key_created = pthread_key_create(&g_thread_local_key, &ThreadLocalDestructor) == 0;
 }
 
 void EnsureInitialized(struct CRYPTO_STATIC_MUTEX* lock) {
@@ -70,18 +72,18 @@ void EnsureInitialized(struct CRYPTO_STATIC_MUTEX* lock) {
     return;
   }
   while (SbAtomicNoBarrier_Load(&lock->initialized) != kInitialized) {
-    SbThreadSleep(kSbTimeMillisecond);
+    usleep(1000);  // 1ms
   }
 }
 
 }  // namespace
 
 void CRYPTO_MUTEX_init(CRYPTO_MUTEX* lock) {
-  if (!SbMutexCreate(&lock->mutex)) {
-    OPENSSL_port_abort();
+  if (pthread_mutex_init(&lock->mutex, nullptr) != 0) {
+    SbSystemBreakIntoDebugger();
   }
-  if (!SbConditionVariableCreate(&lock->condition, &lock->mutex)) {
-    OPENSSL_port_abort();
+  if (pthread_cond_init(&lock->condition, nullptr) != 0) {
+    SbSystemBreakIntoDebugger();
   }
   lock->readers = 0;
   lock->writing = false;
@@ -89,75 +91,72 @@ void CRYPTO_MUTEX_init(CRYPTO_MUTEX* lock) {
 
 // https://en.wikipedia.org/wiki/Readers%E2%80%93writer_lock
 void CRYPTO_MUTEX_lock_read(CRYPTO_MUTEX* lock) {
-  if (SbMutexAcquire(&lock->mutex) != kSbMutexAcquired) {
-    OPENSSL_port_abort();
+  if (pthread_mutex_lock(&lock->mutex) != 0) {
+    SbSystemBreakIntoDebugger();
   }
   while (lock->writing) {
-    if (SbConditionVariableWait(&lock->condition, &lock->mutex) ==
-        kSbConditionVariableFailed) {
-      OPENSSL_port_abort();
+    if (pthread_cond_wait(&lock->condition, &lock->mutex) != 0) {
+      SbSystemBreakIntoDebugger();
     }
   }
   ++(lock->readers);
-  if (!SbMutexRelease(&lock->mutex)) {
-    OPENSSL_port_abort();
+  if (pthread_mutex_unlock(&lock->mutex) != 0) {
+    SbSystemBreakIntoDebugger();
   }
 }
 
 // https://en.wikipedia.org/wiki/Readers%E2%80%93writer_lock
 void CRYPTO_MUTEX_lock_write(CRYPTO_MUTEX* lock) {
-  if (SbMutexAcquire(&lock->mutex) != kSbMutexAcquired) {
-    OPENSSL_port_abort();
+  if (pthread_mutex_lock(&lock->mutex) != 0) {
+    SbSystemBreakIntoDebugger();
   }
   while (lock->writing) {
-    if (SbConditionVariableWait(&lock->condition, &lock->mutex) ==
-        kSbConditionVariableFailed) {
-      OPENSSL_port_abort();
+    if (pthread_cond_wait(&lock->condition, &lock->mutex) != 0) {
+      SbSystemBreakIntoDebugger();
     }
   }
   lock->writing = true;
   while (lock->readers > 0) {
-    if (SbConditionVariableWait(&lock->condition, &lock->mutex) ==
-        kSbConditionVariableFailed) {
-      OPENSSL_port_abort();
+    if (pthread_cond_wait(&lock->condition, &lock->mutex) != 0) {
+      SbSystemBreakIntoDebugger();
     }
   }
-  if (!SbMutexRelease(&lock->mutex)) {
-    OPENSSL_port_abort();
+  if (pthread_mutex_unlock(&lock->mutex) != 0) {
+    SbSystemBreakIntoDebugger();
   }
 }
 
 // https://en.wikipedia.org/wiki/Readers%E2%80%93writer_lock
 void CRYPTO_MUTEX_unlock_read(CRYPTO_MUTEX* lock) {
-  if (SbMutexAcquire(&lock->mutex) != kSbMutexAcquired) {
-    OPENSSL_port_abort();
+  if (pthread_mutex_lock(&lock->mutex) != 0) {
+    SbSystemBreakIntoDebugger();
   }
   if (--(lock->readers) == 0) {
-    SbConditionVariableBroadcast(&lock->condition);
+    pthread_cond_broadcast(&lock->condition);
   }
-  if (!SbMutexRelease(&lock->mutex)) {
-    OPENSSL_port_abort();
+  if (pthread_mutex_unlock(&lock->mutex) != 0) {
+    SbSystemBreakIntoDebugger();
   }
 }
 
 // https://en.wikipedia.org/wiki/Readers%E2%80%93writer_lock
 void CRYPTO_MUTEX_unlock_write(CRYPTO_MUTEX* lock) {
-  if (SbMutexAcquire(&lock->mutex) != kSbMutexAcquired) {
-    OPENSSL_port_abort();
+  if (pthread_mutex_lock(&lock->mutex) != 0) {
+    SbSystemBreakIntoDebugger();
   }
   lock->writing = false;
-  SbConditionVariableBroadcast(&lock->condition);
-  if (!SbMutexRelease(&lock->mutex)) {
-    OPENSSL_port_abort();
+  pthread_cond_broadcast(&lock->condition);
+  if (pthread_mutex_unlock(&lock->mutex) != 0) {
+    SbSystemBreakIntoDebugger();
   }
 }
 
 void CRYPTO_MUTEX_cleanup(CRYPTO_MUTEX* lock) {
-  if (!SbConditionVariableDestroy(&lock->condition)) {
-    OPENSSL_port_abort();
+  if (pthread_cond_destroy(&lock->condition) != 0) {
+    SbSystemBreakIntoDebugger();
   }
-  if (!SbMutexDestroy(&lock->mutex)) {
-    OPENSSL_port_abort();
+  if (pthread_mutex_destroy(&lock->mutex) != 0) {
+    SbSystemBreakIntoDebugger();
   }
 }
 
@@ -182,13 +181,13 @@ void CRYPTO_STATIC_MUTEX_unlock_write(struct CRYPTO_STATIC_MUTEX* lock) {
 }
 
 void* CRYPTO_get_thread_local(thread_local_data_t index) {
-  SbOnce(&g_thread_local_once_control, &ThreadLocalInit);
-  if (!SbThreadIsValidLocalKey(g_thread_local_key)) {
+  pthread_once(&g_thread_local_once_control, &ThreadLocalInit);
+  if (!g_thread_local_key_created) {
     return nullptr;
   }
 
   ThreadLocalEntry* thread_locals = static_cast<ThreadLocalEntry*>(
-      SbThreadGetLocalValue(g_thread_local_key));
+      pthread_getspecific(g_thread_local_key));
   if (thread_locals == nullptr) {
     return nullptr;
   }
@@ -198,14 +197,14 @@ void* CRYPTO_get_thread_local(thread_local_data_t index) {
 
 int CRYPTO_set_thread_local(thread_local_data_t index, void *value,
                             thread_local_destructor_t destructor) {
-  SbOnce(&g_thread_local_once_control, &ThreadLocalInit);
-  if (!SbThreadIsValidLocalKey(g_thread_local_key)) {
+  pthread_once(&g_thread_local_once_control, &ThreadLocalInit);
+  if (!g_thread_local_key_created) {
     destructor(value);
     return 0;
   }
 
   ThreadLocalEntry* thread_locals = static_cast<ThreadLocalEntry*>(
-      SbThreadGetLocalValue(g_thread_local_key));
+      pthread_getspecific(g_thread_local_key));
   if (thread_locals == nullptr) {
     size_t thread_locals_size =
         sizeof(ThreadLocalEntry) * NUM_OPENSSL_THREAD_LOCALS;
@@ -216,7 +215,7 @@ int CRYPTO_set_thread_local(thread_local_data_t index, void *value,
       return 0;
     }
     OPENSSL_memset(thread_locals, 0, thread_locals_size);
-    if (!SbThreadSetLocalValue(g_thread_local_key, thread_locals)) {
+    if (pthread_setspecific(g_thread_local_key, thread_locals) !=0 ) {
       OPENSSL_free(thread_locals);
       destructor(value);
       return 0;

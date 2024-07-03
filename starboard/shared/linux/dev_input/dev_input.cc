@@ -14,11 +14,13 @@
 
 #include "starboard/shared/linux/dev_input/dev_input.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -32,6 +34,7 @@
 #include <vector>
 
 #include "starboard/common/log.h"
+#include "starboard/common/once.h"
 #include "starboard/common/string.h"
 #include "starboard/configuration.h"
 #include "starboard/configuration_constants.h"
@@ -39,9 +42,7 @@
 #include "starboard/input.h"
 #include "starboard/key.h"
 #include "starboard/memory.h"
-#include "starboard/once.h"
 #include "starboard/shared/posix/handle_eintr.h"
-#include "starboard/shared/posix/time_internal.h"
 
 namespace starboard {
 namespace shared {
@@ -224,7 +225,7 @@ class DevInputImpl : public DevInput {
   void InitDevInputImpl(SbWindow window);
 
   Event* PollNextSystemEvent() override;
-  Event* WaitForSystemEventWithTimeout(SbTime time) override;
+  Event* WaitForSystemEventWithTimeout(int64_t time) override;
   void WakeSystemEventWait() override;
 
  private:
@@ -761,9 +762,9 @@ FileDescriptor OpenDeviceIfKeyboardOrGamepad(const char* path) {
 // and returns the device info with a file descriptor and absolute axis details.
 std::vector<InputDeviceInfo> GetInputDevices() {
   const char kDevicePath[] = "/dev/input";
-  SbDirectory directory = SbDirectoryOpen(kDevicePath, NULL);
+  DIR* directory = opendir(kDevicePath);
   std::vector<InputDeviceInfo> input_devices;
-  if (!SbDirectoryIsValid(directory)) {
+  if (!directory) {
     SB_DLOG(ERROR) << __FUNCTION__ << ": No /dev/input support, "
                    << "unable to open: " << kDevicePath;
     return input_devices;
@@ -772,15 +773,22 @@ std::vector<InputDeviceInfo> GetInputDevices() {
   while (true) {
     std::vector<char> entry(kSbFileMaxName);
 
-    if (!SbDirectoryGetNext(directory, entry.data(), kSbFileMaxName)) {
+    if (entry.size() < kSbFileMaxName || !directory || !entry.data()) {
+      break;
+    }
+    struct dirent dirent_buffer;
+    struct dirent* dirent;
+    int result = readdir_r(directory, &dirent_buffer, &dirent);
+    if (result || !dirent) {
       break;
     }
 
     std::string path = kDevicePath;
     path += "/";
-    path += entry.data();
+    path += dirent->d_name;
 
-    if (SbDirectoryCanOpen(path.c_str())) {
+    struct stat file_info;
+    if (stat(path.c_str(), &file_info) == 0 && S_ISDIR(file_info.st_mode)) {
       // This is a subdirectory. Skip.
       continue;
     }
@@ -797,7 +805,7 @@ std::vector<InputDeviceInfo> GetInputDevices() {
     input_devices.push_back(info);
   }
 
-  SbDirectoryClose(directory);
+  closedir(directory);
   return input_devices;
 }
 
@@ -964,7 +972,7 @@ DevInput::Event* DevInputImpl::PollNextSystemEvent() {
   return NULL;
 }
 
-DevInput::Event* DevInputImpl::WaitForSystemEventWithTimeout(SbTime duration) {
+DevInput::Event* DevInputImpl::WaitForSystemEventWithTimeout(int64_t duration) {
   Event* event = PollNextSystemEvent();
   if (event) {
     return event;
@@ -981,9 +989,10 @@ DevInput::Event* DevInputImpl::WaitForSystemEventWithTimeout(SbTime duration) {
   }
   read_set.Set(wakeup_read_fd_);
 
+  int64_t clamped_duration_usec = std::max<int64_t>(duration, 0LL);
   struct timeval tv;
-  SbTime clamped_duration = std::max(duration, (SbTime)0);
-  ToTimevalDuration(clamped_duration, &tv);
+  tv.tv_sec = clamped_duration_usec / 1'000'000;
+  tv.tv_usec = clamped_duration_usec % 1'000'000;
   if (select(read_set.max_fd() + 1, read_set.set(), NULL, NULL, &tv) == 0) {
     // This is the timeout case.
     return NULL;

@@ -15,8 +15,9 @@
 #ifndef STARBOARD_SHARED_LIBDAV1D_DAV1D_VIDEO_DECODER_H_
 #define STARBOARD_SHARED_LIBDAV1D_DAV1D_VIDEO_DECODER_H_
 
-#include "third_party/libdav1d/include/dav1d/dav1d.h"
+#include "third_party/dav1d/libdav1d/include/dav1d/dav1d.h"
 
+#include <memory>
 #include <queue>
 #include <string>
 
@@ -46,7 +47,7 @@ class VideoDecoder : public starboard::player::filter::VideoDecoder,
 
   // TODO: Verify if these values are correct.
   size_t GetPrerollFrameCount() const override { return 8; }
-  SbTime GetPrerollTimeout() const override { return kSbTimeMax; }
+  int64_t GetPrerollTimeout() const override { return kSbInt64Max; }
   size_t GetMaxNumberOfCachedFrames() const override { return 12; }
 
   void WriteInputBuffers(const InputBuffers& input_buffers) override;
@@ -68,7 +69,7 @@ class VideoDecoder : public starboard::player::filter::VideoDecoder,
   void InitializeCodec();
   void TeardownCodec();
   void DecodeOneBuffer(const scoped_refptr<InputBuffer>& input_buffer);
-  void DecodeEndOfStream(SbTime timeout);
+  void DecodeEndOfStream(int64_t timeout);
 
   // Sends all available decoded frames from dav1d for outputting. Returns the
   // number of frames decoded. The output argument tracks whether an
@@ -92,7 +93,7 @@ class VideoDecoder : public starboard::player::filter::VideoDecoder,
   bool stream_ended_ = false;
 
   // Working thread to avoid lengthy decoding work block the player thread.
-  scoped_ptr<starboard::player::JobThread> decoder_thread_;
+  std::unique_ptr<starboard::player::JobThread> decoder_thread_;
 
   // Decode-to-texture related state.
   const SbPlayerOutputMode output_mode_;

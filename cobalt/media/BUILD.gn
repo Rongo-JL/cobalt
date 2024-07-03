@@ -108,10 +108,11 @@ component("media") {
     "//cobalt/network",
     "//cobalt/render_tree:render_tree",
     "//cobalt/system_window:system_window",
+    "//media",
     "//net",
     "//starboard:starboard_group",
-    "//third_party/chromium/media",
     "//third_party/protobuf:protobuf_lite",
+    "//ui/gfx:gfx",
     "//url",
   ]
 }
@@ -122,6 +123,8 @@ target(gtest_target_type, "media_test") {
   sources = [
     "base/cval_stats_test.cc",
     "base/decoder_buffer_cache_test.cc",
+    "base/format_support_query_metrics_test.cc",
+    "base/metrics_provider_test.cc",
     "bidirectional_fit_reuse_allocator_test.cc",
     "file_data_source_test.cc",
     "progressive/demuxer_extension_wrapper_test.cc",
@@ -139,15 +142,16 @@ target(gtest_target_type, "media_test") {
     "//cobalt//browser:test_dependencies_on_browser",
     "//cobalt/base",
     "//cobalt/test:run_all_unittests",
+    "//media",
     "//testing/gmock",
     "//testing/gtest",
-    "//third_party/chromium/media:media",
+    "//ui/gfx:gfx",
   ]
 
   data_deps = [ "//cobalt/media/testing:cobalt_media_download_test_data" ]
 
   # TODO: b/296715826 - Fix symbol resolution in cval_stats_test.cc.
-  if (sb_is_modular && is_host_win) {
+  if (sb_is_modular && host_os == "win") {
     sources -= [ "base/cval_stats_test.cc" ]
   }
 }

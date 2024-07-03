@@ -17,30 +17,27 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/threading/platform_thread.h"
 #include "cobalt/loader/image/threaded_image_decoder_proxy.h"
 
 namespace cobalt {
 namespace loader {
 
-namespace {
-
-// The ResourceLoader thread uses the default stack size, which is requested
-// by passing in 0 for its stack size.
-const size_t kLoadThreadStackSize = 0;
-
-}  // namespace
-
 ScriptLoaderFactory::ScriptLoaderFactory(
     const char* name, FetcherFactory* fetcher_factory,
-    base::ThreadPriority loader_thread_priority)
+    base::ThreadType loader_thread_priority)
     : fetcher_factory_(fetcher_factory),
       load_thread_("ResourceLoader"),
       is_suspended_(false) {
-  base::Thread::Options options(base::MessageLoop::TYPE_DEFAULT,
+#ifndef COBALT_PENDING_CLEAN_UP
+  base::Thread::Options options(base::MessagePumpType::DEFAULT,
                                 kLoadThreadStackSize);
   options.priority = loader_thread_priority;
   load_thread_.StartWithOptions(options);
+#else
+  load_thread_.StartWithOptions(base::Thread::Options(loader_thread_priority));
+#endif
 }
 
 std::unique_ptr<Loader> ScriptLoaderFactory::CreateScriptLoader(

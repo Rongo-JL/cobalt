@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <string>
+#include <utility>
 
 #include "starboard/common/log.h"
 #include "starboard/common/string.h"
@@ -41,12 +42,12 @@ int CodecToIecSampleRate(SbMediaAudioCodec codec) {
 }  // namespace
 
 AudioRendererPassthrough::AudioRendererPassthrough(
-    scoped_ptr<AudioDecoder> audio_decoder,
+    std::unique_ptr<AudioDecoder> audio_decoder,
     const AudioStreamInfo& audio_stream_info)
     : channels_(audio_stream_info.number_of_channels),
       codec_(audio_stream_info.codec),
       iec_sample_rate_(CodecToIecSampleRate(audio_stream_info.codec)),
-      decoder_(audio_decoder.Pass()),
+      decoder_(std::move(audio_decoder)),
       sink_(new WASAPIAudioSink),
       process_audio_buffers_job_(
           std::bind(&AudioRendererPassthrough::ProcessAudioBuffers, this)) {
@@ -172,12 +173,12 @@ void AudioRendererPassthrough::SetPlaybackRate(double playback_rate) {
   sink_->SetPlaybackRate(playback_rate);
 }
 
-void AudioRendererPassthrough::Seek(SbTime seek_to_time) {
+void AudioRendererPassthrough::Seek(int64_t seek_to_time) {
   SB_DCHECK(BelongsToCurrentThread());
   SB_DCHECK(seek_to_time >= 0);
   {
     ScopedLock lock(mutex_);
-    seeking_to_time_ = std::max<SbTime>(seek_to_time, 0);
+    seeking_to_time_ = std::max<int64_t>(seek_to_time, 0);
     seeking_ = true;
   }
 
@@ -194,10 +195,10 @@ void AudioRendererPassthrough::Seek(SbTime seek_to_time) {
   CancelPendingJobs();
 }
 
-SbTime AudioRendererPassthrough::GetCurrentMediaTime(bool* is_playing,
-                                                     bool* is_eos_played,
-                                                     bool* is_underflow,
-                                                     double* playback_rate) {
+int64_t AudioRendererPassthrough::GetCurrentMediaTime(bool* is_playing,
+                                                      bool* is_eos_played,
+                                                      bool* is_underflow,
+                                                      double* playback_rate) {
   SB_DCHECK(is_playing);
   SB_DCHECK(is_eos_played);
   SB_DCHECK(is_underflow);
@@ -214,7 +215,7 @@ SbTime AudioRendererPassthrough::GetCurrentMediaTime(bool* is_playing,
   }
 
   uint64_t sink_playback_time_updated_at;
-  SbTime sink_playback_time = static_cast<SbTime>(
+  int64_t sink_playback_time = static_cast<int64_t>(
       sink_->GetCurrentPlaybackTime(&sink_playback_time_updated_at));
   if (sink_playback_time <= 0) {
     if (sink_playback_time < 0) {
@@ -224,7 +225,7 @@ SbTime AudioRendererPassthrough::GetCurrentMediaTime(bool* is_playing,
     return seeking_to_time_;
   }
 
-  SbTime media_time = seeking_to_time_ + sink_playback_time;
+  int64_t media_time = seeking_to_time_ + sink_playback_time;
   if (!sink_->playing()) {
     return media_time;
   }
@@ -258,7 +259,7 @@ void AudioRendererPassthrough::ProcessAudioBuffers() {
   SB_DCHECK(!pending_inputs_.empty());
 
   process_audio_buffers_job_token_.ResetToInvalid();
-  SbTime process_audio_buffers_job_delay = 5 * kSbTimeMillisecond;
+  int64_t process_audio_buffers_job_delay_usec = 5'000;  // 5ms
 
   scoped_refptr<DecodedAudio> decoded_audio = pending_inputs_.front();
   SB_DCHECK(decoded_audio);
@@ -283,7 +284,7 @@ void AudioRendererPassthrough::ProcessAudioBuffers() {
 
     if (decoded_audio && TryToWriteAudioBufferToSink(decoded_audio)) {
       pending_inputs_.pop();
-      process_audio_buffers_job_delay = 0;
+      process_audio_buffers_job_delay_usec = 0;
       if (seeking_ && total_buffers_sent_to_sink_ >= kNumPrerollDecodedAudios) {
         seeking_ = false;
         Schedule(prerolled_cb_);
@@ -292,8 +293,8 @@ void AudioRendererPassthrough::ProcessAudioBuffers() {
   }
 
   if (!pending_inputs_.empty()) {
-    process_audio_buffers_job_token_ =
-        Schedule(process_audio_buffers_job_, process_audio_buffers_job_delay);
+    process_audio_buffers_job_token_ = Schedule(
+        process_audio_buffers_job_, process_audio_buffers_job_delay_usec);
     return;
   }
 
@@ -321,7 +322,7 @@ void AudioRendererPassthrough::TryToEndStream() {
   int64_t total_frames_played_by_sink =
       GetCurrentMediaTime(&is_playing, &is_eos_played, &is_underflow,
                           &playback_rate) *
-      iec_sample_rate_ / kSbTimeSecond;
+      iec_sample_rate_ / 1'000'000;
   // Wait for the audio sink to output the remaining frames before calling
   // Pause().
   if (total_frames_played_by_sink >= total_frames_sent_to_sink_) {
@@ -330,11 +331,10 @@ void AudioRendererPassthrough::TryToEndStream() {
     ended_cb_();
     return;
   }
-  Schedule(std::bind(&AudioRendererPassthrough::TryToEndStream, this),
-           5 * kSbTimeMillisecond);
+  Schedule(std::bind(&AudioRendererPassthrough::TryToEndStream, this), 5'000);
 }
 
-SbTime AudioRendererPassthrough::CalculateElapsedPlaybackTime(
+int64_t AudioRendererPassthrough::CalculateElapsedPlaybackTime(
     uint64_t update_time) {
   LARGE_INTEGER current_time;
   QueryPerformanceCounter(&current_time);
@@ -345,15 +345,14 @@ SbTime AudioRendererPassthrough::CalculateElapsedPlaybackTime(
       (10000000.0 / static_cast<double>(performance_frequency_.QuadPart));
   SB_DCHECK(current_time_converted >= update_time);
 
-  // Convert elapsed time to SbTime.
-  return ((current_time_converted - update_time) * 100) /
-         kSbTimeNanosecondsPerMicrosecond;
+  // Convert elapsed time to microseconds.
+  return ((current_time_converted - update_time) * 100) / 1000;
 }
 
-SbTime AudioRendererPassthrough::CalculateLastOutputTime(
+int64_t AudioRendererPassthrough::CalculateLastOutputTime(
     scoped_refptr<DecodedAudio>& decoded_audio) {
   return decoded_audio->timestamp() +
-         (decoded_audio->frames() / iec_sample_rate_ * kSbTimeSecond);
+         (decoded_audio->frames() / iec_sample_rate_ * 1'000'000);
 }
 
 }  // namespace uwp

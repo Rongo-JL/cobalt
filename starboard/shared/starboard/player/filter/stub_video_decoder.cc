@@ -37,8 +37,8 @@ size_t StubVideoDecoder::GetPrerollFrameCount() const {
   return 1;
 }
 
-SbTime StubVideoDecoder::GetPrerollTimeout() const {
-  return kSbTimeMax;
+int64_t StubVideoDecoder::GetPrerollTimeout() const {
+  return kSbInt64Max;
 }
 
 size_t StubVideoDecoder::GetMaxNumberOfCachedFrames() const {
@@ -82,7 +82,6 @@ SbDecodeTarget StubVideoDecoder::GetCurrentDecodeTarget() {
 }
 
 void StubVideoDecoder::DecodeBuffers(const InputBuffers& input_buffers) {
-  SB_DCHECK(decoder_thread_->job_queue()->BelongsToCurrentThread());
   for (const auto& input_buffer : input_buffers) {
     auto& video_sample_info = input_buffer->video_sample_info();
     if (video_sample_info.is_key_frame) {
@@ -120,8 +119,6 @@ void StubVideoDecoder::DecodeBuffers(const InputBuffers& input_buffers) {
 }
 
 void StubVideoDecoder::DecodeEndOfStream() {
-  SB_DCHECK(decoder_thread_->job_queue()->BelongsToCurrentThread());
-
   // If there are any remaining frames we need to output, send them all out
   // before writing EOS.
   for (const auto time : output_frame_timestamps_) {
@@ -132,7 +129,7 @@ void StubVideoDecoder::DecodeEndOfStream() {
 }
 
 scoped_refptr<VideoFrame> StubVideoDecoder::CreateOutputFrame(
-    SbTime timestamp) const {
+    int64_t timestamp) const {
   int bits_per_channel = video_stream_info_.color_metadata.bits_per_channel;
   if (bits_per_channel == 0) {
     // Assume 8 bits when |bits_per_channel| is unknown (0).

@@ -18,6 +18,7 @@
 #include <D3D12.h>
 #include <agile.h>
 
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -72,7 +73,7 @@ class ApplicationUwp : public shared::starboard::Application,
 
   bool DestroyWindow(SbWindow window);
 
-  void DispatchStart(SbTimeMonotonic timestamp) {
+  void DispatchStart(int64_t timestamp) {
     shared::starboard::Application::DispatchStart(timestamp);
   }
 
@@ -177,7 +178,7 @@ class ApplicationUwp : public shared::starboard::Application,
   void InjectTimedEvent(TimedEvent* timed_event) override;
   void CancelTimedEvent(SbEventId event_id) override;
   TimedEvent* GetNextDueTimedEvent() override;
-  SbTimeMonotonic GetNextTimedEventTargetTime() override;
+  int64_t GetNextTimedEventTargetTime() override;
 
   int device_id() const { return device_id_; }
   void OnJoystickUpdate(SbKey key, SbInputVector value) override;
@@ -216,7 +217,7 @@ class ApplicationUwp : public shared::starboard::Application,
   Mutex hdcp_session_mutex_;
   Windows::Media::Protection::HdcpSession ^ hdcp_session_;
 
-  scoped_ptr<AnalogThumbstickThread> analog_thumbstick_thread_;
+  std::unique_ptr<AnalogThumbstickThread> analog_thumbstick_thread_;
   Windows::ApplicationModel::SuspendingDeferral ^ suspend_deferral_ = nullptr;
 
   Mutex preferred_display_mode_mutex_;

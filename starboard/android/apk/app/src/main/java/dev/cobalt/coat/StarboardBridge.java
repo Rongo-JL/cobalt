@@ -31,7 +31,6 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Build;
-import android.os.Build.VERSION;
 import android.util.Pair;
 import android.util.Size;
 import android.util.SizeF;
@@ -41,6 +40,7 @@ import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.CaptioningManager;
 import androidx.annotation.Nullable;
 import dev.cobalt.account.UserAuthorizer;
+import dev.cobalt.media.ArtworkDownloader;
 import dev.cobalt.media.AudioOutputManager;
 import dev.cobalt.media.CaptionSettings;
 import dev.cobalt.media.CobaltMediaSession;
@@ -75,7 +75,6 @@ public class StarboardBridge {
   private AudioOutputManager audioOutputManager;
   private CobaltMediaSession cobaltMediaSession;
   private AudioPermissionRequester audioPermissionRequester;
-  private KeyboardEditor keyboardEditor;
   private NetworkStatus networkStatus;
   private ResourceOverlay resourceOverlay;
   private AdvertisingId advertisingId;
@@ -123,6 +122,7 @@ public class StarboardBridge {
       Holder<Activity> activityHolder,
       Holder<Service> serviceHolder,
       UserAuthorizer userAuthorizer,
+      ArtworkDownloader artworkDownloader,
       String[] args,
       String startDeepLink) {
 
@@ -140,7 +140,7 @@ public class StarboardBridge {
     this.userAuthorizer = userAuthorizer;
     this.audioOutputManager = new AudioOutputManager(appContext);
     this.cobaltMediaSession =
-        new CobaltMediaSession(appContext, activityHolder, audioOutputManager);
+        new CobaltMediaSession(appContext, activityHolder, audioOutputManager, artworkDownloader);
     this.audioPermissionRequester = new AudioPermissionRequester(appContext, activityHolder);
     this.networkStatus = new NetworkStatus(appContext);
     this.resourceOverlay = new ResourceOverlay(appContext);
@@ -151,11 +151,10 @@ public class StarboardBridge {
 
   private native boolean nativeInitialize();
 
-  private native long nativeSbTimeGetMonotonicNow();
+  private native long nativeCurrentMonotonicTime();
 
-  protected void onActivityStart(Activity activity, KeyboardEditor keyboardEditor) {
+  protected void onActivityStart(Activity activity) {
     activityHolder.set(activity);
-    this.keyboardEditor = keyboardEditor;
     sysConfigChangeReceiver.setForeground(true);
   }
 
@@ -188,48 +187,6 @@ public class StarboardBridge {
 
   @SuppressWarnings("unused")
   @UsedByNative
-  protected void startMediaPlaybackService() {
-    if (cobaltMediaSession == null || !cobaltMediaSession.isActive()) {
-      Log.w(TAG, "Do not start a MediaPlaybackService when the MediSsession is null or inactive.");
-      return;
-    }
-
-    Service service = serviceHolder.get();
-    if (service == null) {
-      if (appContext == null) {
-        Log.w(TAG, "Activiy already destroyed.");
-        return;
-      }
-      Log.i(TAG, "Cold start - Instantiating a MediaPlaybackService.");
-      Intent intent = new Intent(appContext, MediaPlaybackService.class);
-      try {
-        if (VERSION.SDK_INT >= 26) {
-          appContext.startForegroundService(intent);
-        } else {
-          appContext.startService(intent);
-        }
-      } catch (SecurityException e) {
-        Log.e(TAG, "Failed to start MediaPlaybackService with intent.", e);
-        return;
-      }
-    } else {
-      Log.i(TAG, "Warm start - Restarting the MediaPlaybackService.");
-      ((MediaPlaybackService) service).startService();
-    }
-  }
-
-  @SuppressWarnings("unused")
-  @UsedByNative
-  protected void stopMediaPlaybackService() {
-    Service service = serviceHolder.get();
-    if (service != null) {
-      Log.i(TAG, "Stopping the MediaPlaybackService.");
-      ((MediaPlaybackService) service).stopService();
-    }
-  }
-
-  @SuppressWarnings("unused")
-  @UsedByNative
   protected void beforeStartOrResume() {
     Log.i(TAG, "Prepare to resume");
     // Bring our platform services to life before resuming so that they're ready to deal with
@@ -255,9 +212,6 @@ public class StarboardBridge {
       for (CobaltService service : cobaltServices.values()) {
         service.beforeSuspend();
       }
-      // We need to stop MediaPlaybackService before suspending so that this foreground service
-      // would not prevent releasing activity's memory consumption.
-      stopMediaPlaybackService();
     } catch (Throwable e) {
       Log.i(TAG, "Caught exception in beforeSuspend: " + e.getMessage());
     }
@@ -649,6 +603,12 @@ public class StarboardBridge {
         playbackState, actions, positionMs, speed, title, artist, album, artwork, duration);
   }
 
+  @SuppressWarnings("unused")
+  @UsedByNative
+  public void deactivateMediaSession() {
+    cobaltMediaSession.deactivateMediaSession();
+  }
+
   /** Returns string for kSbSystemPropertyUserAgentAuxField */
   @SuppressWarnings("unused")
   @UsedByNative
@@ -687,13 +647,6 @@ public class StarboardBridge {
   @UsedByNative
   AudioOutputManager getAudioOutputManager() {
     return audioOutputManager;
-  }
-
-  /** Returns Java layer implementation for KeyboardEditor */
-  @SuppressWarnings("unused")
-  @UsedByNative
-  KeyboardEditor getKeyboardEditor() {
-    return keyboardEditor;
   }
 
   /** Returns Java layer implementation for AudioPermissionRequester */
@@ -800,7 +753,7 @@ public class StarboardBridge {
     Activity activity = activityHolder.get();
     if (activity instanceof CobaltActivity) {
       long javaStartTimestamp = ((CobaltActivity) activity).getAppStartTimestamp();
-      long cppTimestamp = nativeSbTimeGetMonotonicNow();
+      long cppTimestamp = nativeCurrentMonotonicTime();
       long javaStopTimestamp = System.nanoTime();
       return cppTimestamp
           - (javaStartTimestamp - javaStopTimestamp) / timeNanosecondsPerMicrosecond;

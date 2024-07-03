@@ -15,6 +15,7 @@
 #ifndef STARBOARD_SHARED_STARBOARD_PLAYER_PLAYER_INTERNAL_H_
 #define STARBOARD_SHARED_STARBOARD_PLAYER_PLAYER_INTERNAL_H_
 
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -26,7 +27,6 @@
 #include "starboard/shared/internal_only.h"
 #include "starboard/shared/starboard/media/media_util.h"
 #include "starboard/shared/starboard/player/player_worker.h"
-#include "starboard/time.h"
 #include "starboard/window.h"
 
 #if SB_PLAYER_ENABLE_VIDEO_DUMPER
@@ -46,9 +46,9 @@ struct SbPlayerPrivate {
       SbPlayerStatusFunc player_status_func,
       SbPlayerErrorFunc player_error_func,
       void* context,
-      starboard::scoped_ptr<PlayerWorker::Handler> player_worker_handler);
+      starboard::unique_ptr_alias<PlayerWorker::Handler> player_worker_handler);
 
-  void Seek(SbTime seek_to_time, int ticket);
+  void Seek(int64_t seek_to_time, int ticket);
   template <typename PlayerSampleInfo>
   void WriteSamples(const PlayerSampleInfo* sample_infos,
                     int number_of_sample_infos);
@@ -84,12 +84,12 @@ struct SbPlayerPrivate {
       SbPlayerStatusFunc player_status_func,
       SbPlayerErrorFunc player_error_func,
       void* context,
-      starboard::scoped_ptr<PlayerWorker::Handler> player_worker_handler);
+      starboard::unique_ptr_alias<PlayerWorker::Handler> player_worker_handler);
 
   SbPlayerPrivate(const SbPlayerPrivate&) = delete;
   SbPlayerPrivate& operator=(const SbPlayerPrivate&) = delete;
 
-  void UpdateMediaInfo(SbTime media_time,
+  void UpdateMediaInfo(int64_t media_time,
                        int dropped_video_frames,
                        int ticket,
                        bool is_progressing);
@@ -99,8 +99,8 @@ struct SbPlayerPrivate {
 
   starboard::Mutex mutex_;
   int ticket_ = SB_PLAYER_INITIAL_TICKET;
-  SbTime media_time_ = 0;
-  SbTimeMonotonic media_time_updated_at_;
+  int64_t media_time_ = 0;         // microseconds
+  int64_t media_time_updated_at_;  // microseconds
   int frame_width_ = 0;
   int frame_height_ = 0;
   bool is_paused_ = false;
@@ -112,7 +112,7 @@ struct SbPlayerPrivate {
   // we may extrapolate the media time in GetInfo().
   bool is_progressing_ = false;
 
-  starboard::scoped_ptr<PlayerWorker> worker_;
+  std::unique_ptr<PlayerWorker> worker_;
 
   starboard::Mutex audio_configurations_mutex_;
   std::vector<SbMediaAudioConfiguration> audio_configurations_;

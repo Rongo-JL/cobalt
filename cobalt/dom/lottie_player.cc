@@ -22,6 +22,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "cobalt/base/polymorphic_downcast.h"
+#include "cobalt/dom/base64.h"
 #include "cobalt/dom/document.h"
 #include "cobalt/dom/dom_settings.h"
 #include "cobalt/dom/html_element_context.h"
@@ -34,15 +35,26 @@
 namespace cobalt {
 namespace dom {
 
+namespace {
+bool isBase64Encoded(const std::string& url) {
+  size_t pos = url.find(',');
+  if (pos != std::string::npos) {
+    std::string beforeComma = url.substr(0, pos);
+    return beforeComma.find("base64") != std::string::npos;
+  }
+  return false;
+}
+}  // namespace
+
 using render_tree::LottieAnimation;
 
 const char LottiePlayer::kTagName[] = "lottie-player";
 
 LottiePlayer::LottiePlayer(Document* document)
-    : HTMLElement(document, base::Token(kTagName)),
+    : HTMLElement(document, base_token::Token(kTagName)),
       autoplaying_(true),
       ALLOW_THIS_IN_INITIALIZER_LIST(event_queue_(this)),
-      callback_task_runner_(base::ThreadTaskRunnerHandle::Get()) {
+      callback_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {
   SetAnimationEventCallbacks();
 }
 
@@ -75,13 +87,13 @@ void LottiePlayer::set_background(std::string background) {
 int LottiePlayer::count() const { return properties_.count; }
 
 void LottiePlayer::set_count(int count) {
-  SetAttribute("count", base::Int32ToString(count));
+  SetAttribute("count", std::to_string(count));
 }
 
 int LottiePlayer::direction() const { return properties_.direction; }
 
 void LottiePlayer::set_direction(int direction) {
-  SetAttribute("direction", base::Int32ToString(direction));
+  SetAttribute("direction", std::to_string(direction));
 }
 
 bool LottiePlayer::hover() const { return GetBooleanAttribute("hover"); }
@@ -126,12 +138,8 @@ std::string LottiePlayer::preserve_aspect_ratio() const {
 }
 
 std::string LottiePlayer::renderer() const {
-// Cobalt uses a custom compiled-in renderer.
-#if defined(USE_SKIA_NEXT)
+  // Cobalt uses a custom compiled-in renderer.
   return "skottie-m97";
-#else
-  return "skottie-m79";
-#endif
 }
 
 void LottiePlayer::Load(std::string src) {
@@ -245,13 +253,9 @@ void LottiePlayer::OnSetAttribute(const std::string& name,
   } else if (name == "background") {
     SetStyleAttribute("background:" + value);
   } else if (name == "count") {
-    int count;
-    base::StringToInt32(value, &count);
-    SetCount(count);
+    SetCount(std::stoi(value, nullptr));
   } else if (name == "direction") {
-    int direction;
-    base::StringToInt32(value, &direction);
-    SetDirection(direction);
+    SetDirection(std::stoi(value, nullptr));
   } else if (name == "loop") {
     SetLooping(true);
   } else if (name == "mode") {
@@ -286,7 +290,7 @@ void LottiePlayer::OnRemoveAttribute(const std::string& name) {
 }
 
 void LottiePlayer::UpdateAnimationData() {
-  DCHECK(base::MessageLoop::current());
+  DCHECK(base::SequencedTaskRunner::GetCurrentDefault());
   DCHECK(node_document());
   TRACE_EVENT0("cobalt::dom", "LottiePlayer::UpdateAnimationData()");
 
@@ -306,9 +310,20 @@ void LottiePlayer::UpdateAnimationData() {
       return;
     }
 
+    // Force base64 encoding of plain/raw inputs, to ensure no URL escaping
+    // occurs.
+    GURL resource_url = selected_source;
+    if (selected_source.SchemeIs("data") && !isBase64Encoded(src)) {
+      base::Optional<std::string> encoded =
+          ForgivingBase64Encode(src.substr(src.find(',') + 1));
+      if (encoded) {
+        resource_url = GURL(std::string("data:text/json;base64,") + *encoded);
+      }
+    }
+
     auto image_cache = node_document()->html_element_context()->image_cache();
-    cached_image_ = image_cache->GetOrCreateCachedResource(selected_source,
-                                                           loader::Origin());
+    cached_image_ =
+        image_cache->GetOrCreateCachedResource(resource_url, loader::Origin());
 
     if (cached_image_->TryGetResource()) {
       PreventGarbageCollectionUntilEventIsDispatched(base::Tokens::load());
@@ -370,7 +385,7 @@ void LottiePlayer::OnLoadingError() {
 }
 
 void LottiePlayer::PreventGarbageCollectionUntilEventIsDispatched(
-    base::Token event_name) {
+    base_token::Token event_name) {
   std::unique_ptr<script::GlobalEnvironment::ScopedPreventGarbageCollection>
       prevent_gc_until_event_dispatch(
           new script::GlobalEnvironment::ScopedPreventGarbageCollection(
@@ -381,7 +396,7 @@ void LottiePlayer::PreventGarbageCollectionUntilEventIsDispatched(
 }
 
 void LottiePlayer::AllowGarbageCollectionAfterEventIsDispatched(
-    base::Token event_name,
+    base_token::Token event_name,
     std::unique_ptr<script::GlobalEnvironment::ScopedPreventGarbageCollection>
         scoped_prevent_gc) {
   PostToDispatchEventNameAndRunCallback(
@@ -433,7 +448,7 @@ void LottiePlayer::UpdateLottieObjects() {
   InvalidateLayoutBoxesOfNodeAndAncestors();
 }
 
-void LottiePlayer::ScheduleEvent(base::Token event_name) {
+void LottiePlayer::ScheduleEvent(base_token::Token event_name) {
   // https://github.com/LottieFiles/lottie-player#events
   scoped_refptr<web::Event> event = new web::Event(event_name);
   event->set_target(this);
@@ -443,34 +458,34 @@ void LottiePlayer::ScheduleEvent(base::Token event_name) {
 void LottiePlayer::SetAnimationEventCallbacks() {
   DCHECK(callback_task_runner_);
   properties_.onplay_callback =
-      base::Bind(base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
+      base::Bind(base::IgnoreResult(&base::SequencedTaskRunner::PostTask),
                  callback_task_runner_, FROM_HERE,
                  base::Bind(&LottiePlayer::OnPlay, base::AsWeakPtr(this)));
   properties_.onpause_callback =
-      base::Bind(base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
+      base::Bind(base::IgnoreResult(&base::SequencedTaskRunner::PostTask),
                  callback_task_runner_, FROM_HERE,
                  base::Bind(&LottiePlayer::OnPause, base::AsWeakPtr(this)));
   properties_.onstop_callback =
-      base::Bind(base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
+      base::Bind(base::IgnoreResult(&base::SequencedTaskRunner::PostTask),
                  callback_task_runner_, FROM_HERE,
                  base::Bind(&LottiePlayer::OnStop, base::AsWeakPtr(this)));
   properties_.oncomplete_callback =
-      base::Bind(base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
+      base::Bind(base::IgnoreResult(&base::SequencedTaskRunner::PostTask),
                  callback_task_runner_, FROM_HERE,
                  base::Bind(&LottiePlayer::OnComplete, base::AsWeakPtr(this)));
   properties_.onloop_callback =
-      base::Bind(base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
+      base::Bind(base::IgnoreResult(&base::SequencedTaskRunner::PostTask),
                  callback_task_runner_, FROM_HERE,
                  base::Bind(&LottiePlayer::OnLoop, base::AsWeakPtr(this)));
   properties_.onenterframe_callback = base::Bind(
       &LottiePlayer::CallOnEnterFrame, callback_task_runner_,
       base::Bind(&LottiePlayer::OnEnterFrame, base::AsWeakPtr(this)));
   properties_.onfreeze_callback =
-      base::Bind(base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
+      base::Bind(base::IgnoreResult(&base::SequencedTaskRunner::PostTask),
                  callback_task_runner_, FROM_HERE,
                  base::Bind(&LottiePlayer::OnFreeze, base::AsWeakPtr(this)));
   properties_.onunfreeze_callback =
-      base::Bind(base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
+      base::Bind(base::IgnoreResult(&base::SequencedTaskRunner::PostTask),
                  callback_task_runner_, FROM_HERE,
                  base::Bind(&LottiePlayer::OnUnfreeze, base::AsWeakPtr(this)));
 }
@@ -498,7 +513,7 @@ void LottiePlayer::OnEnterFrame(double frame, double seeker) {
 }
 
 void LottiePlayer::CallOnEnterFrame(
-    scoped_refptr<base::SingleThreadTaskRunner> callback_task_runner,
+    scoped_refptr<base::SequencedTaskRunner> callback_task_runner,
     base::Callback<void(double, double)> enter_frame_callback, double frame,
     double seeker) {
   callback_task_runner->PostTask(

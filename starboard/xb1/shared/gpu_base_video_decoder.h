@@ -28,7 +28,6 @@
 #include "starboard/common/atomic.h"
 #include "starboard/common/mutex.h"
 #include "starboard/common/ref_counted.h"
-#include "starboard/common/scoped_ptr.h"
 #include "starboard/shared/starboard/decode_target/decode_target_context_runner.h"
 #include "starboard/shared/starboard/media/media_util.h"
 #include "starboard/shared/starboard/player/filter/video_decoder_internal.h"
@@ -131,7 +130,7 @@ class GpuVideoDecoderBase
       SB_DCHECK(index < kNumberOfPlanes);
       return strides_[index];
     }
-    SbTime timestamp() const { return timestamp_; }
+    int64_t timestamp() const { return timestamp_; }
     const SbMediaColorMetadata& color_metadata() const {
       return color_metadata_;
     }
@@ -152,7 +151,7 @@ class GpuVideoDecoderBase
     int texture_corner_top_[kNumberOfPlanes];
     Microsoft::WRL::ComPtr<ID3D11Texture2D> textures_[kNumberOfPlanes];
     int strides_[kNumberOfPlanes];
-    SbTime timestamp_;
+    int64_t timestamp_;  // microseconds
     SbMediaColorMetadata color_metadata_;
     const std::function<void(void)> release_cb_;
   };
@@ -178,7 +177,7 @@ class GpuVideoDecoderBase
   void Initialize(const DecoderStatusCB& decoder_status_cb,
                   const ErrorCB& error_cb) final;
   size_t GetPrerollFrameCount() const final;
-  SbTime GetPrerollTimeout() const final { return kSbTimeMax; }
+  int64_t GetPrerollTimeout() const final { return kSbInt64Max; }
   size_t GetMaxNumberOfCachedFrames() const override;
 
   void WriteInputBuffers(const InputBuffers& input_buffers) final;
@@ -238,7 +237,8 @@ class GpuVideoDecoderBase
   void* egl_display_ = nullptr;
   DecodeTargetContextRunner decode_target_context_runner_;
 
-  scoped_ptr<starboard::shared::starboard::player::JobThread> decoder_thread_;
+  std::unique_ptr<starboard::shared::starboard::player::JobThread>
+      decoder_thread_;
 
   // |pending_inputs_| is shared between player main thread and decoder thread.
   Mutex pending_inputs_mutex_;

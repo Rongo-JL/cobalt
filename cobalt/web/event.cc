@@ -17,35 +17,38 @@
 #include "base/compiler_specific.h"
 #include "base/time/time.h"
 #include "cobalt/web/event_target.h"
-#include "starboard/common/time.h"
 
 namespace cobalt {
 namespace web {
 
 Event::Event(UninitializedFlag uninitialized_flag)
     : event_phase_(kNone),
-      time_stamp_(GetEventTime(starboard::CurrentMonotonicTime())) {
-  InitEventInternal(base::Token(), false, false);
+      time_stamp_(GetEventTime(
+          (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds())) {
+  InitEventInternal(base_token::Token(), false, false);
 }
 
-Event::Event(const char* type) : Event(base::Token(type)) {}
-Event::Event(const std::string& type) : Event(base::Token(type)) {}
-Event::Event(base::Token type)
+Event::Event(const char* type) : Event(base_token::Token(type)) {}
+Event::Event(const std::string& type) : Event(base_token::Token(type)) {}
+Event::Event(base_token::Token type)
     : event_phase_(kNone),
-      time_stamp_(GetEventTime(starboard::CurrentMonotonicTime())) {
+      time_stamp_(GetEventTime(
+          (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds())) {
   InitEventInternal(type, false, false);
 }
 Event::Event(const std::string& type, const EventInit& init_dict)
-    : Event(base::Token(type), init_dict) {}
-Event::Event(base::Token type, Bubbles bubbles, Cancelable cancelable)
+    : Event(base_token::Token(type), init_dict) {}
+Event::Event(base_token::Token type, Bubbles bubbles, Cancelable cancelable)
     : event_phase_(kNone),
-      time_stamp_(GetEventTime(starboard::CurrentMonotonicTime())) {
+      time_stamp_(GetEventTime(
+          (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds())) {
   InitEventInternal(type, bubbles == kBubbles, cancelable == kCancelable);
 }
 
-Event::Event(base::Token type, const EventInit& init_dict)
+Event::Event(base_token::Token type, const EventInit& init_dict)
     : event_phase_(kNone),
-      time_stamp_(GetEventTime(starboard::CurrentMonotonicTime())) {
+      time_stamp_(GetEventTime(
+          (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds())) {
   SB_DCHECK(init_dict.has_bubbles());
   SB_DCHECK(init_dict.has_cancelable());
   if (init_dict.time_stamp() != 0) {
@@ -71,7 +74,7 @@ void Event::InitEvent(const std::string& type, bool bubbles, bool cancelable) {
     return;
   }
 
-  InitEventInternal(base::Token(type), bubbles, cancelable);
+  InitEventInternal(base_token::Token(type), bubbles, cancelable);
 }
 
 void Event::set_target(const scoped_refptr<EventTarget>& target) {
@@ -82,7 +85,8 @@ void Event::set_current_target(const scoped_refptr<EventTarget>& target) {
   current_target_ = target;
 }
 
-void Event::InitEventInternal(base::Token type, bool bubbles, bool cancelable) {
+void Event::InitEventInternal(base_token::Token type, bool bubbles,
+                              bool cancelable) {
   type_ = type;
   bubbles_ = bubbles;
   cancelable_ = cancelable;
@@ -100,8 +104,8 @@ void Event::TraceMembers(script::Tracer* tracer) {
 uint64 Event::GetEventTime(int64_t monotonic_time) {
   // Current delta from Windows epoch.
   int64_t time_delta =
-      starboard::PosixTimeToWindowsTime(starboard::CurrentPosixTime()) -
-      starboard::CurrentMonotonicTime();
+      base::Time::Now().ToDeltaSinceWindowsEpoch().InMicroseconds() -
+      (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds();
   base::Time base_time = base::Time::FromDeltaSinceWindowsEpoch(
       base::TimeDelta::FromMicroseconds(time_delta + monotonic_time));
   // For now, continue using the old specification which specifies real time

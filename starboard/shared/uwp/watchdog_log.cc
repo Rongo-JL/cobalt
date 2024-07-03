@@ -14,11 +14,13 @@
 
 #include "starboard/shared/uwp/watchdog_log.h"
 
+#include <unistd.h>
+
+#include <memory>
 #include <string>
 
 #include "starboard/common/file.h"
 #include "starboard/common/log.h"
-#include "starboard/common/scoped_ptr.h"
 #include "starboard/common/semaphore.h"
 #include "starboard/common/string.h"
 #include "starboard/common/thread.h"
@@ -43,7 +45,7 @@ class WatchDogThread : public Thread {
   ~WatchDogThread() { Join(); }
 
   void Run() override {
-    static const SbTime kSleepTime = kSbTimeMillisecond * 250;
+    static const int64_t kSleepTime = 250'000;  // 250ms
     int counter = 0;
     bool created_ok = false;
     SbFileError out_error = kSbFileOk;
@@ -68,7 +70,7 @@ class WatchDogThread : public Thread {
         SbFileWrite(file_handle, kDone, static_cast<int>(strlen(kDone)));
     RecordFileWriteStat(result);
     SbFileFlush(file_handle);
-    SbThreadSleep(50 * kSbTimeMillisecond);
+    usleep(50'000);
     bool closed = SbFileClose(file_handle);
     SB_LOG_IF(ERROR, closed) << "Could not close file " << file_path_;
   }
@@ -76,7 +78,7 @@ class WatchDogThread : public Thread {
  private:
   std::string file_path_;
 };
-starboard::scoped_ptr<WatchDogThread> s_watchdog_singleton_;
+std::unique_ptr<WatchDogThread> s_watchdog_singleton_;
 }  // namespace.
 
 void StartWatchdogLog(const std::string& path) {

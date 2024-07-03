@@ -14,6 +14,8 @@
 
 #include "starboard/shared/starboard/player/filter/testing/video_decoder_test_fixture.h"
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <deque>
 #include <functional>
@@ -27,6 +29,7 @@
 #include "starboard/common/mutex.h"
 #include "starboard/common/scoped_ptr.h"
 #include "starboard/common/string.h"
+#include "starboard/common/time.h"
 #include "starboard/configuration_constants.h"
 #include "starboard/drm.h"
 #include "starboard/media.h"
@@ -39,7 +42,6 @@
 #include "starboard/shared/starboard/player/video_dmp_reader.h"
 #include "starboard/testing/fake_graphics_context_provider.h"
 #include "starboard/thread.h"
-#include "starboard/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace starboard {
@@ -84,12 +86,15 @@ void VideoDecoderTestFixture::Initialize() {
   SbPlayerOutputMode output_mode = output_mode_;
   ASSERT_TRUE(PlayerComponents::Factory::OutputModeSupported(
       output_mode, dmp_reader_.video_codec(), kSbDrmSystemInvalid));
+  int max_video_input_size = 0;
 
   PlayerComponents::Factory::CreationParameters creation_parameters(
       GetVideoInputBuffer(0)->video_stream_info(), &player_, output_mode,
+      max_video_input_size,
       fake_graphics_context_provider_->decoder_target_provider(), nullptr);
+  ASSERT_EQ(creation_parameters.max_video_input_size(), max_video_input_size);
 
-  scoped_ptr<PlayerComponents::Factory> factory;
+  unique_ptr_alias<PlayerComponents::Factory> factory;
   if (using_stub_decoder_) {
     factory = StubPlayerComponentsFactory::Create();
   } else {
@@ -142,7 +147,6 @@ void VideoDecoderTestFixture::OnError() {
   SB_LOG(WARNING) << "Video decoder received error.";
 }
 
-#if SB_HAS(GLES2)
 void VideoDecoderTestFixture::AssertInvalidDecodeTarget() {
   if (output_mode_ == kSbPlayerOutputModeDecodeToTexture &&
       !using_stub_decoder_) {
@@ -155,13 +159,11 @@ void VideoDecoderTestFixture::AssertInvalidDecodeTarget() {
     ASSERT_FALSE(is_decode_target_valid);
   }
 }
-#endif  // SB_HAS(GLES2)
 
-void VideoDecoderTestFixture::WaitForNextEvent(Event* event,
-                                               SbTimeMonotonic timeout) {
+void VideoDecoderTestFixture::WaitForNextEvent(Event* event, int64_t timeout) {
   ASSERT_TRUE(event);
 
-  SbTimeMonotonic start = SbTimeGetMonotonicNow();
+  int64_t start = CurrentMonotonicTime();
   do {
     job_queue_->RunUntilIdle();
     GetDecodeTargetWhenSupported();
@@ -180,32 +182,28 @@ void VideoDecoderTestFixture::WaitForNextEvent(Event* event,
         return;
       }
     }
-    SbThreadSleep(kSbTimeMillisecond);
-  } while (SbTimeGetMonotonicNow() - start < timeout);
+    usleep(1000);
+  } while (CurrentMonotonicTime() - start < timeout);
   event->status = kTimeout;
   SB_LOG(WARNING) << "WaitForNextEvent() timeout.";
 }
 
 bool VideoDecoderTestFixture::HasPendingEvents() {
-  const SbTime kDelay = 5 * kSbTimeMillisecond;
-  SbThreadSleep(kDelay);
+  usleep(5000);
   ScopedLock scoped_lock(mutex_);
   return !event_queue_.empty();
 }
 
 void VideoDecoderTestFixture::GetDecodeTargetWhenSupported() {
-#if SB_HAS(GLES2)
   if (output_mode_ == kSbPlayerOutputModeDecodeToTexture &&
       !using_stub_decoder_) {
     fake_graphics_context_provider_->RunOnGlesContextThread([&]() {
       SbDecodeTargetRelease(video_decoder_->GetCurrentDecodeTarget());
     });
   }
-#endif  // SB_HAS(GLES2)
 }
 
 void VideoDecoderTestFixture::AssertValidDecodeTargetWhenSupported() {
-#if SB_HAS(GLES2)
   volatile bool is_decode_target_valid = false;
   if (output_mode_ == kSbPlayerOutputModeDecodeToTexture &&
       !using_stub_decoder_) {
@@ -216,7 +214,6 @@ void VideoDecoderTestFixture::AssertValidDecodeTargetWhenSupported() {
     });
     ASSERT_TRUE(is_decode_target_valid);
   }
-#endif  // SB_HAS(GLES2)
 }
 
 // This has to be called when the decoder is just initialized/reset or when

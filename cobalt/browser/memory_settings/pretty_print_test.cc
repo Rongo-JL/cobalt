@@ -23,10 +23,10 @@
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "cobalt/browser/memory_settings/memory_settings.h"
 #include "cobalt/browser/memory_settings/test_common.h"
 #include "cobalt/browser/switches.h"
-#include "starboard/common/log.h"
 #include "starboard/memory.h"
 #include "starboard/string.h"
 #include "starboard/system.h"
@@ -46,7 +46,7 @@ bool HasTokensInOrder(const std::string& value,
     EXPECT_NE(position, std::string::npos);
     EXPECT_GE(position, current_position);
     if (position == std::string::npos) {
-      SB_DLOG(INFO) << "Token \"" << token << "\" not found in order.";
+      DLOG(INFO) << "Token \"" << token << "\" not found in order.";
       return false;
     }
     current_position = position + strlen(token);
@@ -59,7 +59,7 @@ TEST(MemorySettingsPrettyPrint, GeneratePrettyPrintTable) {
   TestSettingGroup setting_group;
   setting_group.LoadDefault();
   std::string actual_string =
-      GeneratePrettyPrintTable(false, setting_group.AsConstVector());
+      GeneratePrettyPrintTable(setting_group.AsConstVector());
 
   // clang-format off
   EXPECT_TRUE(HasTokensInOrder(
@@ -74,12 +74,11 @@ TEST(MemorySettingsPrettyPrint, GeneratePrettyPrintTable) {
 
 TEST(MemorySettingsPrettyPrint, GenerateMemoryTableWithUnsetGpuMemory) {
   IntSetting cpu_memory_setting("max_cpu_memory");
-  cpu_memory_setting.set_value(MemorySetting::kBuildSetting, 256 * 1024 * 1024);
+  cpu_memory_setting.set_value(MemorySetting::kStarboardAPI, 256 * 1024 * 1024);
   IntSetting gpu_memory_setting("max_gpu_memory");
 
   std::string actual_output =
-      GenerateMemoryTable(false,               // No color.
-                          cpu_memory_setting,  // 256 MB CPU available
+      GenerateMemoryTable(cpu_memory_setting,  // 256 MB CPU available
                           gpu_memory_setting,
                           128 * 1024 * 1024,  // 128 MB CPU consumption
                           0);                 // 0 MB GPU consumption.
@@ -87,20 +86,19 @@ TEST(MemorySettingsPrettyPrint, GenerateMemoryTableWithUnsetGpuMemory) {
   // clang-format off
   EXPECT_TRUE(HasTokensInOrder(
       actual_output, {"MEMORY", "SOURCE", "TOTAL", "SETTINGS CONSUME", "\n",
-                      "max_cpu_memory", "Build", "256.0 MB", "128.0 MB", "\n",
+                      "max_cpu_memory", "Starboard API", "256.0 MB", "128.0 MB", "\n",
                       "max_gpu_memory", "Unset", "<UNKNOWN>", "0.0 MB", "\n"}));
   // clang-format on
 }
 
 TEST(MemorySettingsPrettyPrint, GenerateMemoryTableWithGpuMemory) {
   IntSetting cpu_memory_setting("max_cpu_memory");
-  cpu_memory_setting.set_value(MemorySetting::kBuildSetting, 256 * 1024 * 1024);
+  cpu_memory_setting.set_value(MemorySetting::kStarboardAPI, 256 * 1024 * 1024);
   IntSetting gpu_memory_setting("max_gpu_memory");
-  gpu_memory_setting.set_value(MemorySetting::kBuildSetting, 64 * 1024 * 1024);
+  gpu_memory_setting.set_value(MemorySetting::kStarboardAPI, 64 * 1024 * 1024);
 
   std::string actual_output =
-      GenerateMemoryTable(false,               // No color.
-                          cpu_memory_setting,  // 256 MB CPU available.
+      GenerateMemoryTable(cpu_memory_setting,  // 256 MB CPU available.
                           gpu_memory_setting,  // 64 MB GPU available.
                           128 * 1024 * 1024,   // 128 MB CPU consumption.
                           23592960);           // 22.5 MB GPU consumption.
@@ -108,19 +106,18 @@ TEST(MemorySettingsPrettyPrint, GenerateMemoryTableWithGpuMemory) {
   // clang-format off
   EXPECT_TRUE(HasTokensInOrder(
       actual_output, {"MEMORY", "SOURCE", "TOTAL", "SETTINGS CONSUME", "\n",
-                      "max_cpu_memory", "Build", "256.0 MB", "128.0 MB", "\n",
-                      "max_gpu_memory", "Build", "64.0 MB", "22.5 MB", "\n"}));
+                      "max_cpu_memory", "Starboard API", "256.0 MB", "128.0 MB", "\n",
+                      "max_gpu_memory", "Starboard API", "64.0 MB", "22.5 MB", "\n"}));
   // clang-format on
 }
 
 TEST(MemorySettingsPrettyPrint, GenerateMemoryWithInvalidGpuMemoryConsumption) {
   IntSetting cpu_memory_setting("max_cpu_memory");
-  cpu_memory_setting.set_value(MemorySetting::kBuildSetting, 256 * 1024 * 1024);
+  cpu_memory_setting.set_value(MemorySetting::kStarboardAPI, 256 * 1024 * 1024);
   IntSetting gpu_memory_setting("max_gpu_memory");
   gpu_memory_setting.set_value(MemorySetting::kStarboardAPI, 0);
 
   std::string actual_output = GenerateMemoryTable(
-      false,               // No color.
       cpu_memory_setting,  // 256 MB CPU available.
       gpu_memory_setting,  // Signals that no gpu memory is available
                            //   on this system.
@@ -130,7 +127,7 @@ TEST(MemorySettingsPrettyPrint, GenerateMemoryWithInvalidGpuMemoryConsumption) {
   // clang-format off
   EXPECT_TRUE(HasTokensInOrder(
       actual_output, {"MEMORY", "SOURCE", "TOTAL", "SETTINGS CONSUME", "\n",
-                      "max_cpu_memory", "Build", "256.0 MB", "128.0 MB", "\n",
+                      "max_cpu_memory", "Starboard API", "256.0 MB", "128.0 MB", "\n",
                       "max_gpu_memory", "Starboard API", "<UNKNOWN>", "16.0 MB", "\n"  // NOLINT(whitespace/line_length)
                      }));
   // clang-format on

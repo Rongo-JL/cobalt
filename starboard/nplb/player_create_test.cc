@@ -19,13 +19,13 @@
 #include "starboard/common/media.h"
 #include "starboard/common/mutex.h"
 #include "starboard/common/optional.h"
+#include "starboard/common/time.h"
 #include "starboard/configuration_constants.h"
 #include "starboard/decode_target.h"
 #include "starboard/nplb/player_creation_param_helpers.h"
 #include "starboard/nplb/player_test_util.h"
 #include "starboard/player.h"
 #include "starboard/testing/fake_graphics_context_provider.h"
-#include "starboard/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace starboard {
@@ -47,7 +47,6 @@ class SbPlayerTest : public ::testing::Test {
     if (output_mode != kSbPlayerOutputModeDecodeToTexture) {
       return;
     }
-#if SB_HAS(GLES2)
     fake_graphics_context_provider_.RunOnGlesContextThread([&]() {
       ASSERT_TRUE(SbPlayerIsValid(player));
       SbDecodeTarget frame = SbPlayerGetCurrentFrame(player);
@@ -55,7 +54,6 @@ class SbPlayerTest : public ::testing::Test {
         SbDecodeTargetRelease(frame);
       }
     });
-#endif  // SB_HAS(GLES2)
   }
 
   static void PlayerStatusFunc(SbPlayer player,
@@ -93,12 +91,12 @@ class SbPlayerTest : public ::testing::Test {
   }
 
   void WaitForPlayerInitializedOrError(bool* error_occurred) {
-    const SbTime kWaitTimeout = kSbTimeSecond * 5;
+    const int64_t kWaitTimeout = 5'000'000LL;  // 5 seconds
 
     SB_DCHECK(error_occurred);
     *error_occurred = false;
 
-    const SbTimeMonotonic wait_end = SbTimeGetMonotonicNow() + kWaitTimeout;
+    const int64_t wait_end = CurrentMonotonicTime() + kWaitTimeout;
 
     for (;;) {
       ScopedLock scoped_lock(mutex_);
@@ -113,7 +111,7 @@ class SbPlayerTest : public ::testing::Test {
         return;
       }
 
-      auto now = SbTimeGetMonotonicNow();
+      auto now = CurrentMonotonicTime();
       if (now > wait_end) {
         break;
       }
@@ -324,23 +322,23 @@ TEST_F(SbPlayerTest, MultiPlayer) {
   constexpr SbPlayerOutputMode kOutputModes[] = {
       kSbPlayerOutputModeDecodeToTexture, kSbPlayerOutputModePunchOut};
 
+  // clang-format off
   constexpr SbMediaAudioCodec kAudioCodecs[] = {
-    kSbMediaAudioCodecNone,
+      kSbMediaAudioCodecNone,
 
-    kSbMediaAudioCodecAac,
-    kSbMediaAudioCodecAc3,
-    kSbMediaAudioCodecEac3,
-    kSbMediaAudioCodecOpus,
-    kSbMediaAudioCodecVorbis,
-#if SB_API_VERSION >= 14
-    kSbMediaAudioCodecMp3,
-    kSbMediaAudioCodecFlac,
-    kSbMediaAudioCodecPcm,
-#endif  // SB_API_VERSION >= 14
+      kSbMediaAudioCodecAac,
+      kSbMediaAudioCodecAc3,
+      kSbMediaAudioCodecEac3,
+      kSbMediaAudioCodecOpus,
+      kSbMediaAudioCodecVorbis,
+      kSbMediaAudioCodecMp3,
+      kSbMediaAudioCodecFlac,
+      kSbMediaAudioCodecPcm,
 #if SB_API_VERSION >= 15
-    kSbMediaAudioCodecIamf,
+      kSbMediaAudioCodecIamf,
 #endif  // SB_API_VERSION >= 15
   };
+  // clang-format on
 
   // TODO: turn this into a macro.
   // Perform a check to determine if new audio codecs have been added to the
@@ -354,24 +352,29 @@ TEST_F(SbPlayerTest, MultiPlayer) {
     case kAudioCodecs[3]:
     case kAudioCodecs[4]:
     case kAudioCodecs[5]:
-#if SB_API_VERSION >= 14
     case kAudioCodecs[6]:
     case kAudioCodecs[7]:
     case kAudioCodecs[8]:
-#endif
 #if SB_API_VERSION >= 15
     case kAudioCodecs[9]:
 #endif  // SB_API_VERSION >= 15
       break;
   }
 
+  // clang-format off
   constexpr SbMediaVideoCodec kVideoCodecs[] = {
       kSbMediaVideoCodecNone,
 
-      kSbMediaVideoCodecH264,   kSbMediaVideoCodecH265, kSbMediaVideoCodecMpeg2,
-      kSbMediaVideoCodecTheora, kSbMediaVideoCodecVc1,  kSbMediaVideoCodecAv1,
-      kSbMediaVideoCodecVp8,    kSbMediaVideoCodecVp9,
+      kSbMediaVideoCodecH264,
+      kSbMediaVideoCodecH265,
+      kSbMediaVideoCodecMpeg2,
+      kSbMediaVideoCodecTheora,
+      kSbMediaVideoCodecVc1,
+      kSbMediaVideoCodecAv1,
+      kSbMediaVideoCodecVp8,
+      kSbMediaVideoCodecVp9,
   };
+  // clang-format on
 
   // TODO: turn this into a macro.
   // Perform a check to determine if new video codecs have been added to the

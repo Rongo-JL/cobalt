@@ -21,7 +21,7 @@
 #include "base/containers/small_map.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "cobalt/media/web_media_player_factory.h"
 #include "cobalt/media_session/media_metadata.h"
 #include "cobalt/media_session/media_position_state.h"
@@ -31,7 +31,6 @@
 #include "cobalt/script/callback_function.h"
 #include "cobalt/script/script_value.h"
 #include "cobalt/script/wrappable.h"
-#include "starboard/common/time.h"
 
 namespace cobalt {
 namespace media_session {
@@ -97,14 +96,14 @@ class MediaSession : public script::Wrappable {
 
   // Returns a time representing right now - may be overridden for testing.
   virtual int64_t GetMonotonicNow() const {
-    return starboard::CurrentMonotonicTime();
+    return (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds();
   }
 
   ActionMap action_map_;
   std::unique_ptr<MediaSessionClient> media_session_client_;
   scoped_refptr<MediaMetadata> metadata_;
   MediaSessionPlaybackState playback_state_;
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
   bool is_change_task_queued_;
   int64_t last_position_updated_time_;
   base::Optional<MediaPositionState> media_position_state_;

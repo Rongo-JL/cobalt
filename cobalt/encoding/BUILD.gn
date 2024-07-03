@@ -46,14 +46,12 @@ target(gtest_target_type, "text_encoding_test") {
     "//cobalt/browser:generated_bindings",
     "//cobalt/debug",
     "//cobalt/dom/testing:dom_testing",
+    "//cobalt/network",
     "//cobalt/script",
     "//cobalt/test:run_all_unittests",
     "//testing/gmock",
     "//testing/gtest",
   ]
 
-  data_deps = [
-    "//cobalt/network:copy_ssl_certificates",
-    "//third_party/icu:icudata",
-  ]
+  data_deps = [ "//cobalt/network:copy_ssl_certificates" ]
 }

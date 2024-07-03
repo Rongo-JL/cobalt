@@ -22,7 +22,7 @@ try:
 except ImportError:
   import urllib2 as urllib
 
-from tools import download_from_gcs
+from cobalt.tools import download_from_gcs
 
 
 def DownloadGerritCommitMsgHook(force=False):
@@ -58,4 +58,6 @@ if __name__ == '__main__':
   logging.basicConfig(
       level=logging.INFO, format=logging_format, datefmt='%H:%M:%S')
 
-  DownloadGerritCommitMsgHook()
+  is_internal = os.path.exists('internal')
+  if is_internal:
+    DownloadGerritCommitMsgHook()

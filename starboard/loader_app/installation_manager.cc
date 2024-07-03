@@ -14,6 +14,9 @@
 
 #include "starboard/loader_app/installation_manager.h"
 
+#include <sys/stat.h>
+
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -21,16 +24,17 @@
 #include "starboard/common/file.h"
 #include "starboard/common/log.h"
 #include "starboard/common/mutex.h"
-#include "starboard/common/scoped_ptr.h"
 #include "starboard/common/string.h"
 #include "starboard/configuration_constants.h"
 #include "starboard/directory.h"
+#include "starboard/extension/loader_app_metrics.h"
 #include "starboard/file.h"
 #include "starboard/loader_app/installation_store.pb.h"
 #if !SB_IS(EVERGREEN_COMPATIBLE_LITE)
 #include "starboard/loader_app/pending_restart.h"  // nogncheck
 #endif  // !SB_IS(EVERGREEN_COMPATIBLE_LITE)
-#include "starboard/once.h"
+#include "starboard/common/once.h"
+#include "starboard/loader_app/record_loader_app_status.h"
 #include "starboard/string.h"
 
 namespace starboard {
@@ -52,7 +56,7 @@ class InstallationManager {
   int RollForward(int installation_index);
   int DecrementInstallationNumTries(int installation_index);
 
-  int RevertToSuccessfulInstallation();
+  int RevertToSuccessfulInstallation(SlotSelectionStatus status);
   int GetInstallationPath(int installation_index, char* path, int path_length);
   int GetCurrentInstallationIndex();
   int MarkInstallationSuccessful(int installation_index);
@@ -201,18 +205,17 @@ std::string InstallationManager::DumpInstallationSlots() {
   out << "size=";
   const int kBufSize = 50;
   char buf_num[kBufSize];
-  SbStringFormatF(buf_num, kBufSize, "%d",
-                  installation_store_.installations_size());
+  snprintf(buf_num, kBufSize, "%d", installation_store_.installations_size());
   out << buf_num;
 
   out << " roll_forward_to_installation=";
-  SbStringFormatF(buf_num, kBufSize, "%d",
-                  installation_store_.roll_forward_to_installation());
+  snprintf(buf_num, kBufSize, "%d",
+           installation_store_.roll_forward_to_installation());
   out << buf_num;
   out << ";";
   for (int i = 0; i < installation_store_.installations_size(); i++) {
     out << " installation_";
-    SbStringFormatF(buf_num, kBufSize, "%d", i);
+    snprintf(buf_num, kBufSize, "%d", i);
     out << buf_num;
     out << " is_successful=";
     if (installation_store_.installations(i).is_successful()) {
@@ -222,13 +225,13 @@ std::string InstallationManager::DumpInstallationSlots() {
     }
 
     out << " num_tries_left=";
-    SbStringFormatF(buf_num, kBufSize, "%d",
-                    installation_store_.installations(i).num_tries_left());
+    snprintf(buf_num, kBufSize, "%d",
+             installation_store_.installations(i).num_tries_left());
     out << buf_num;
 
     out << " priority=";
-    SbStringFormatF(buf_num, kBufSize, "%d",
-                    installation_store_.installations(i).priority());
+    snprintf(buf_num, kBufSize, "%d",
+             installation_store_.installations(i).priority());
     out << buf_num;
     out << ";";
   }
@@ -298,7 +301,8 @@ int InstallationManager::DecrementInstallationNumTries(int installation_index) {
 //          [x] => [ ]
 //     low  [ ]    [-]
 //
-int InstallationManager::RevertToSuccessfulInstallation() {
+int InstallationManager::RevertToSuccessfulInstallation(
+    SlotSelectionStatus status) {
   if (!initialized_) {
     SB_LOG(ERROR) << "RevertToSuccessfulInstallation: not initialized";
     return IM_ERROR;
@@ -346,6 +350,7 @@ int InstallationManager::RevertToSuccessfulInstallation() {
                 << DumpInstallationSlots();
 
   if (SaveInstallationStore()) {
+    RecordSlotSelectionStatus(status);
     return fallback_installation;
   }
   return IM_ERROR;
@@ -417,7 +422,12 @@ int InstallationManager::RollForwardInternal(int installation_index) {
   current_installation_ = installation_index;
 
   SB_DLOG(INFO) << "RollForwardInternal: " << DumpInstallationSlots();
-  return SaveInstallationStore() ? IM_SUCCESS : IM_ERROR;
+
+  if (SaveInstallationStore()) {
+    RecordSlotSelectionStatus(SlotSelectionStatus::kRollForward);
+    return IM_SUCCESS;
+  }
+  return IM_ERROR;
 }
 
 // Shift the priority in the inclusive range either up or down based
@@ -686,11 +696,11 @@ bool InstallationManager::GetInstallationPathInternal(int installation_index,
   // SLOT_0 is placed in |kSbSystemPathContentDirectory|, under the subdirectory
   // 'app/cobalt'.
   if (installation_index == 0) {
-    SbStringFormatF(path, path_length, "%s%s%s%s%s", content_dir_.c_str(),
-                    kSbFileSepString, "app", kSbFileSepString, "cobalt");
+    snprintf(path, path_length, "%s%s%s%s%s", content_dir_.c_str(),
+             kSbFileSepString, "app", kSbFileSepString, "cobalt");
   } else {
-    SbStringFormatF(path, path_length, "%s%s%s%d", storage_dir_.c_str(),
-                    kSbFileSepString, "installation_", installation_index);
+    snprintf(path, path_length, "%s%s%s%d", storage_dir_.c_str(),
+             kSbFileSepString, "installation_", installation_index);
   }
 
   return true;
@@ -708,7 +718,9 @@ bool InstallationManager::CreateInstallationDirs() {
       return false;
     }
 
-    if (!SbDirectoryCreate(path.data())) {
+    struct stat info;
+    if (mkdir(path.data(), 0700) != 0 &&
+        !(stat(path.data(), &info) == 0 && S_ISDIR(info.st_mode))) {
       return false;
     }
   }
@@ -737,7 +749,7 @@ bool InstallationManager::CleanInstallationDirs() {
 extern "C" {
 #endif
 
-starboard::scoped_ptr<
+std::unique_ptr<
     starboard::loader_app::installation_manager::InstallationManager>
     g_installation_manager_;
 
@@ -828,9 +840,9 @@ int ImRollForward(int installation_index) {
   return g_installation_manager_->RollForward(installation_index);
 }
 
-int ImRevertToSuccessfulInstallation() {
+int ImRevertToSuccessfulInstallation(SlotSelectionStatus status) {
   starboard::ScopedLock lock(*GetImMutex());
-  return g_installation_manager_->RevertToSuccessfulInstallation();
+  return g_installation_manager_->RevertToSuccessfulInstallation(status);
 }
 
 int ImRequestRollForwardToInstallation(int installation_index) {

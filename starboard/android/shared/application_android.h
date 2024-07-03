@@ -17,6 +17,7 @@
 
 #include <android/looper.h>
 #include <android/native_window.h>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -28,7 +29,6 @@
 #include "starboard/common/atomic.h"
 #include "starboard/common/condition_variable.h"
 #include "starboard/common/mutex.h"
-#include "starboard/common/scoped_ptr.h"
 #include "starboard/configuration.h"
 #include "starboard/shared/internal_only.h"
 #include "starboard/shared/starboard/application.h"
@@ -92,18 +92,10 @@ class ApplicationAndroid
 
   void SendKeyboardInject(SbKey key);
 
-  void SbWindowShowOnScreenKeyboard(SbWindow window,
-                                    const char* input_text,
-                                    int ticket);
-  void SbWindowHideOnScreenKeyboard(SbWindow window, int ticket);
-  void SbWindowUpdateOnScreenKeyboardSuggestions(
-      SbWindow window,
-      const std::vector<std::string>& suggestions,
-      int ticket);
   void SbWindowSendInputEvent(const char* input_text, bool is_composing);
   void SendLowMemoryEvent();
   void OsNetworkStatusChange(bool became_online);
-  SbTimeMonotonic GetAppStartTimestamp();
+  int64_t GetAppStartTimestamp();  // microseconds
 
   void SendDateTimeConfigurationChangedEvent();
 
@@ -115,10 +107,6 @@ class ApplicationAndroid
   std::string GetOverlayedStringValue(const char* var_name);
   bool GetOverlayedBoolValue(const char* var_name);
 
-  // Methods to start/stop Media playback service.
-  void StartMediaPlaybackService();
-  void StopMediaPlaybackService();
-
  protected:
   // --- Application overrides ---
   void Initialize() override;
@@ -128,8 +116,8 @@ class ApplicationAndroid
   void OnSuspend() override;
 
   // --- QueueApplication overrides ---
-  bool MayHaveSystemEvents() override { return handle_system_events_; }
-  Event* WaitForSystemEventWithTimeout(SbTime time) override;
+  bool MayHaveSystemEvents() override { return handle_system_events_.load(); }
+  Event* WaitForSystemEventWithTimeout(int64_t time) override;
   void WakeSystemEventWait() override;
 
  private:
@@ -144,7 +132,7 @@ class ApplicationAndroid
 
   // In certain situations, the Starboard thread should not try to process new
   // system events (e.g. while one is being processed).
-  bool handle_system_events_ = true;
+  atomic_bool handle_system_events_;
 
   // Synchronization for commands that change availability of Android resources
   // such as the input and/or native_window_.
@@ -167,7 +155,7 @@ class ApplicationAndroid
   // |input_events_generator_| is accessed from multiple threads, so use a mutex
   // to safely access it.
   Mutex input_mutex_;
-  scoped_ptr<InputEventsGenerator> input_events_generator_;
+  std::unique_ptr<InputEventsGenerator> input_events_generator_;
 
   bool last_is_accessibility_high_contrast_text_enabled_;
 

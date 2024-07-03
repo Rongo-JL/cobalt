@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <cmath>
 #include <deque>
@@ -23,6 +25,7 @@
 
 #include "starboard/common/mutex.h"
 #include "starboard/common/scoped_ptr.h"
+#include "starboard/common/time.h"
 #include "starboard/configuration_constants.h"
 #include "starboard/shared/starboard/media/media_support_internal.h"
 #include "starboard/shared/starboard/player/filter/audio_decoder_internal.h"
@@ -51,7 +54,7 @@ using ::testing::Combine;
 using ::testing::ValuesIn;
 using video_dmp::VideoDmpReader;
 
-const SbTimeMonotonic kWaitForNextEventTimeOut = 5 * kSbTimeSecond;
+const int64_t kWaitForNextEventTimeOut = 5'000'000;  // 5 seconds
 
 scoped_refptr<InputBuffer> GetAudioInputBuffer(VideoDmpReader* dmp_reader,
                                                size_t index) {
@@ -96,7 +99,7 @@ class AdaptiveAudioDecoderTest
       ASSERT_GT(dmp_reader->number_of_audio_buffers(), 0);
     }
 
-    scoped_ptr<AudioRendererSink> audio_renderer_sink;
+    unique_ptr_alias<AudioRendererSink> audio_renderer_sink;
     ASSERT_TRUE(CreateAudioComponents(using_stub_decoder_,
                                       dmp_readers_[0]->audio_stream_info(),
                                       &audio_decoder_, &audio_renderer_sink));
@@ -142,8 +145,8 @@ class AdaptiveAudioDecoderTest
   }
 
   void WaitAndProcessNextEvent(Event* event) {
-    SbTimeMonotonic start = SbTimeGetMonotonicNow();
-    while (SbTimeGetMonotonicNow() - start < kWaitForNextEventTimeOut) {
+    int64_t start = CurrentMonotonicTime();
+    while (CurrentMonotonicTime() - start < kWaitForNextEventTimeOut) {
       job_queue_.RunUntilIdle();
       {
         ScopedLock scoped_lock(event_queue_mutex_);
@@ -154,7 +157,7 @@ class AdaptiveAudioDecoderTest
           return;
         }
       }
-      SbThreadSleep(kSbTimeMillisecond);
+      usleep(1000);
     }
     *event = kError;
     FAIL();
@@ -277,7 +280,7 @@ class AdaptiveAudioDecoderTest
   bool using_stub_decoder_;
 
   JobQueue job_queue_;
-  scoped_ptr<AudioDecoder> audio_decoder_;
+  unique_ptr_alias<AudioDecoder> audio_decoder_;
 
   Mutex event_queue_mutex_;
   std::deque<Event> event_queue_;
@@ -307,7 +310,7 @@ std::string GetAdaptiveAudioDecoderTestConfigName(
 }
 
 TEST_P(AdaptiveAudioDecoderTest, SingleInput) {
-  SbTime playing_duration = 0;
+  int64_t playing_duration = 0;
   // Skip buffer 0, as the difference between first and second opus buffer
   // timestamp is a little larger than it should be.
   size_t buffer_index = 1;
@@ -317,13 +320,13 @@ TEST_P(AdaptiveAudioDecoderTest, SingleInput) {
     ASSERT_NO_FATAL_FAILURE(
         WriteMultipleInputs(dmp_reader.get(), buffer_index, kBuffersToWrite));
     auto input_buffer = GetAudioInputBuffer(dmp_reader.get(), buffer_index);
-    SbTime input_timestamp = input_buffer->timestamp();
+    int64_t input_timestamp = input_buffer->timestamp();
     buffer_index += kBuffersToWrite;
     // Use next buffer here, need to make sure dmp file has enough buffers.
     SB_DCHECK(dmp_reader->number_of_audio_buffers() > buffer_index);
     auto next_input_buffer =
         GetAudioInputBuffer(dmp_reader.get(), buffer_index);
-    SbTime next_timestamp = next_input_buffer->timestamp();
+    int64_t next_timestamp = next_input_buffer->timestamp();
     playing_duration += next_timestamp - input_timestamp;
   }
   ASSERT_NO_FATAL_FAILURE(WriteEndOfStream());
@@ -331,8 +334,8 @@ TEST_P(AdaptiveAudioDecoderTest, SingleInput) {
 
   ASSERT_EQ(true, first_output_received_);
   ASSERT_NE(0, output_sample_rate_);
-  int expected_output_frames = playing_duration * output_sample_rate_ /
-                               static_cast<double>(kSbTimeSecond);
+  int expected_output_frames =
+      playing_duration * output_sample_rate_ / static_cast<double>(1'000'000);
   // The |num_of_output_frames_| may not accurately match
   // |expected_output_frames|. Each time to switch decoder, it may have one
   // sample difference in output due to integer conversion. The total difference
@@ -341,7 +344,7 @@ TEST_P(AdaptiveAudioDecoderTest, SingleInput) {
 }
 
 TEST_P(AdaptiveAudioDecoderTest, MultipleInput) {
-  SbTime playing_duration = 0;
+  int64_t playing_duration = 0;
   // Skip buffer 0, as the difference between first and second opus buffer
   // timestamp is a little larger than it should be.
   size_t buffer_index = 1;
@@ -351,13 +354,13 @@ TEST_P(AdaptiveAudioDecoderTest, MultipleInput) {
     ASSERT_NO_FATAL_FAILURE(
         WriteMultipleInputs(dmp_reader.get(), buffer_index, kBuffersToWrite));
     auto input_buffer = GetAudioInputBuffer(dmp_reader.get(), buffer_index);
-    SbTime input_timestamp = input_buffer->timestamp();
+    int64_t input_timestamp = input_buffer->timestamp();
     buffer_index += kBuffersToWrite;
     // Use next buffer here, need to make sure dmp file has enough buffers.
     SB_DCHECK(dmp_reader->number_of_audio_buffers() > buffer_index);
     auto next_input_buffer =
         GetAudioInputBuffer(dmp_reader.get(), buffer_index);
-    SbTime next_timestamp = next_input_buffer->timestamp();
+    int64_t next_timestamp = next_input_buffer->timestamp();
     playing_duration += next_timestamp - input_timestamp;
   }
   ASSERT_NO_FATAL_FAILURE(WriteEndOfStream());
@@ -365,8 +368,8 @@ TEST_P(AdaptiveAudioDecoderTest, MultipleInput) {
 
   ASSERT_EQ(true, first_output_received_);
   ASSERT_NE(0, output_sample_rate_);
-  int expected_output_frames = playing_duration * output_sample_rate_ /
-                               static_cast<double>(kSbTimeSecond);
+  int expected_output_frames =
+      playing_duration * output_sample_rate_ / static_cast<double>(1'000'000);
   // The |num_of_output_frames_| may not accurately match
   // |expected_output_frames|. Each time to switch decoder, it may have one
   // sample difference in output due to integer conversion. The total difference

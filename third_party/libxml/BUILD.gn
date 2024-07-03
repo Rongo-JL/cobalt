@@ -68,13 +68,11 @@ config("libxml_warnings") {
       # Comparison between xmlElementType and xmlXPathTypeVal.
       # TODO(hans): See if we can fix upstream (http://crbug.com/763944).
       "-Wno-enum-compare",
-    ]
-    if (is_clang_16 && use_cobalt_customizations) {
-      cflags += [
+
         # xmlschemas.c variable 'count' set but not used
         "-Wno-unused-but-set-variable",
-      ]
-    }
+    ]
+
   } else if (is_linux || is_chromeos) {
     cflags = [
       # gcc spits out a bunch of warnings about passing too many arguments to
@@ -190,7 +188,6 @@ static_library("libxml") {
 
     #"src/debugXML.c",
     "src/dict.c",
-    "src/elfgcchack.h",
     "src/enc.h",
     "src/encoding.c",
     "src/entities.c",
@@ -335,6 +332,10 @@ if (!use_cobalt_customizations) {
   public_deps = [ "//third_party/icu:icuuc" ]
   deps = [ "//third_party/zlib" ]
 
+  if (is_starboard) {
+    deps += [ "//starboard:starboard_headers_only" ]
+  }
+
   if (is_apple || is_android || is_fuchsia) {
     # http://www.xmlsoft.org/threads.html says that this is required when using
     # libxml from several threads, which can possibly happen in chrome. On
@@ -345,3 +346,5 @@ if (!use_cobalt_customizations) {
 
   include_dirs = [ "$os_include" ]
 }
+
+group("xml_reader") {}

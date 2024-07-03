@@ -17,7 +17,7 @@ config("compiler_flags") {
   cflags_c = []
   cflags_cc = []
   defines = []
-  ldflags = []
+  ldflags = [ "-Wl,--error-limit=0" ]
 
   if (is_debug) {
     cflags += [ "-O0" ]
@@ -65,6 +65,15 @@ config("compiler_flags") {
 
       # Default visibility to hidden, to enable dead stripping.
       "-fvisibility=hidden",
+
+      # Do not warn about an implicit conversion from int to float
+      "-Wno-implicit-int-float-conversion",
+
+      # Do not warn about an implicit conversion from int to char16
+      "-Wno-implicit-int-conversion",
+
+      # Do not remove null pointer checks.
+      "-fno-delete-null-pointer-checks",
     ]
 
     if (is_gold) {
@@ -75,19 +84,6 @@ config("compiler_flags") {
     }
   }
 
-  if (is_clang_16) {
-    cflags += [
-      # Do not warn about an implicit conversion from int to float
-      "-Wno-implicit-int-float-conversion",
-
-      # Do not warn about an implicit conversion from int to char16
-      "-Wno-implicit-int-conversion",
-
-      # Do not remove null pointer checks.
-      "-fno-delete-null-pointer-checks",
-    ]
-  }
-
   if (!cobalt_fastbuild && (is_debug || is_devel)) {
     cflags += [ "-g" ]
   }
@@ -95,14 +91,9 @@ config("compiler_flags") {
   defines += [
     # By default, <EGL/eglplatform.h> pulls in some X11 headers that have some
     # nasty macros (|Status|, for example) that conflict with Chromium base.
-    "MESA_EGL_NO_X11_HEADERS",
+    "EGL_NO_X11",
   ]
-  cflags_c += [
-    # Limit to C99. This allows Linux to be a canary build for any
-    # C11 features that are not supported on some platforms' compilers.
-    "-std=c99",
-  ]
-  cflags_cc = [ "-std=gnu++17" ]
+  cflags_c += [ "-std=c11" ]
 
   if (use_asan) {
     cflags += [
@@ -146,7 +137,6 @@ config("platform_configuration") {
   defines += [
     # Defined to get format macro constants from <inttypes.h>.
     "__STDC_FORMAT_MACROS",
-    "COBALT_LINUX",
 
     # Enable GNU extensions to get prototypes like ffsl.
     "_GNU_SOURCE=1",

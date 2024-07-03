@@ -27,15 +27,19 @@
 OPENSSL_MSVC_PRAGMA(warning(push, 3))
 #include <winsock2.h>
 OPENSSL_MSVC_PRAGMA(warning(pop))
+#else
+#include <signal.h>
 #endif
 
+#include "../internal.h"
 
-namespace bssl {
 
-class ErrorTestEventListener : public testing::EmptyTestEventListener {
+BSSL_NAMESPACE_BEGIN
+
+class TestEventListener : public testing::EmptyTestEventListener {
  public:
-  ErrorTestEventListener() {}
-  ~ErrorTestEventListener() override {}
+  TestEventListener() {}
+  ~TestEventListener() override {}
 
   void OnTestEnd(const testing::TestInfo &test_info) override {
     if (test_info.result()->Failed()) {
@@ -46,6 +50,13 @@ class ErrorTestEventListener : public testing::EmptyTestEventListener {
       // error queue without printing.
       ERR_clear_error();
     }
+
+    // Malloc failure testing is quadratic in the number of mallocs. Running
+    // multiple tests sequentially thus scales badly. Reset the malloc counter
+    // between tests. This way we will test, each test with the first allocation
+    // failing, then the second, and so on, until the test with the most
+    // allocations runs out.
+    OPENSSL_reset_malloc_counter_for_testing();
   }
 };
 
@@ -67,13 +78,16 @@ inline void SetupGoogleTest() {
     fprintf(stderr, "Didn't get expected version: %x\n", wsa_data.wVersion);
     exit(1);
   }
+#else
+  // Some tests create pipes. We check return values, so avoid being killed by
+  // |SIGPIPE|.
+  signal(SIGPIPE, SIG_IGN);
 #endif
 
-  testing::UnitTest::GetInstance()->listeners().Append(
-      new ErrorTestEventListener);
+  testing::UnitTest::GetInstance()->listeners().Append(new TestEventListener);
 }
 
-}  // namespace bssl
+BSSL_NAMESPACE_END
 
 
 #endif  // OPENSSL_HEADER_CRYPTO_TEST_GTEST_MAIN_H

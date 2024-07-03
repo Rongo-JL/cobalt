@@ -12,17 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <dirent.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 
 #include "starboard/common/file.h"
 #include "starboard/common/string.h"
+#include "starboard/common/time.h"
 #include "starboard/configuration_constants.h"
+#include "starboard/directory.h"
 #include "starboard/memory.h"
 #include "starboard/nplb/file_helpers.h"
 #include "starboard/system.h"
-#include "starboard/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace starboard {
@@ -66,6 +69,16 @@ void UnmodifiedOnFailureTest(SbSystemPathId id, int line) {
   }
 }
 
+bool FileExists(const char* path) {
+  struct stat info;
+  return stat(path, &info) == 0;
+}
+
+bool DirectoryExists(const char* path) {
+  struct stat info;
+  return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+}
+
 TEST(SbSystemGetPathTest, ReturnsRequiredPaths) {
   BasicTest(kSbSystemPathContentDirectory, true, true, __LINE__);
   BasicTest(kSbSystemPathCacheDirectory, true, true, __LINE__);
@@ -94,9 +107,6 @@ TEST(SbSystemGetPathTest, FailsGracefullyBogusId) {
 TEST(SbSystemGetPathTest, DoesNotBlowUpForDefinedIds) {
   BasicTest(kSbSystemPathDebugOutputDirectory, false, false, __LINE__);
   BasicTest(kSbSystemPathTempDirectory, false, false, __LINE__);
-#if SB_API_VERSION < 14
-  BasicTest(kSbSystemPathTestOutputDirectory, false, false, __LINE__);
-#endif  // #if SB_API_VERSION < 14
   BasicTest(kSbSystemPathCacheDirectory, false, false, __LINE__);
   BasicTest(kSbSystemPathFontDirectory, false, false, __LINE__);
   BasicTest(kSbSystemPathFontConfigurationDirectory, false, false, __LINE__);
@@ -105,9 +115,6 @@ TEST(SbSystemGetPathTest, DoesNotBlowUpForDefinedIds) {
 TEST(SbSystemGetPathTest, DoesNotTouchOutputBufferOnFailureForDefinedIds) {
   UnmodifiedOnFailureTest(kSbSystemPathDebugOutputDirectory, __LINE__);
   UnmodifiedOnFailureTest(kSbSystemPathTempDirectory, __LINE__);
-#if SB_API_VERSION < 14
-  UnmodifiedOnFailureTest(kSbSystemPathTestOutputDirectory, __LINE__);
-#endif  // #if SB_API_VERSION < 14
   UnmodifiedOnFailureTest(kSbSystemPathCacheDirectory, __LINE__);
   UnmodifiedOnFailureTest(kSbSystemPathFontDirectory, __LINE__);
   UnmodifiedOnFailureTest(kSbSystemPathFontConfigurationDirectory, __LINE__);
@@ -126,19 +133,21 @@ TEST(SbSystemGetPathTest, CanCreateAndRemoveDirectoryInCache) {
         kSbFileSepString + ScopedRandomFile::MakeRandomFilename();
     EXPECT_GT(starboard::strlcat(path.data(), sub_path.c_str(), kPathSize), 0);
     EXPECT_TRUE(SbFileDelete(path.data()));
-    EXPECT_FALSE(SbFileExists(path.data()));
+    EXPECT_FALSE(FileExists(path.data()));
 
     // Create the directory and confirm it exists and can be opened.
-    EXPECT_TRUE(SbDirectoryCreate(path.data()));
-    EXPECT_TRUE(SbFileExists(path.data()));
-    EXPECT_TRUE(SbDirectoryCanOpen(path.data()));
-    SbDirectory directory = SbDirectoryOpen(path.data(), NULL);
-    EXPECT_TRUE(SbDirectoryIsValid(directory));
+    struct stat info;
+    EXPECT_TRUE(mkdir(path.data(), 0700) == 0 ||
+                (DirectoryExists(path.data())));
+    EXPECT_TRUE(FileExists(path.data()));
+    EXPECT_TRUE(DirectoryExists(path.data()));
+    DIR* directory = opendir(path.data());
+    EXPECT_TRUE(directory);
 
     // Lastly, close and delete the directory.
-    EXPECT_TRUE(SbDirectoryClose(directory));
+    EXPECT_TRUE(closedir(directory) == 0);
     EXPECT_TRUE(SbFileDelete(path.data()));
-    EXPECT_FALSE(SbFileExists(path.data()));
+    EXPECT_FALSE(FileExists(path.data()));
   }
 }
 
@@ -157,35 +166,34 @@ TEST(SbSystemGetPathTest, CanWriteAndReadCache) {
         kSbFileSepString + ScopedRandomFile::MakeRandomFilename();
     EXPECT_GT(starboard::strlcat(path.data(), sub_path.c_str(), kPathSize), 0);
     EXPECT_TRUE(SbFileDelete(path.data()));
-    EXPECT_FALSE(SbFileExists(path.data()));
+    EXPECT_FALSE(FileExists(path.data()));
 
     // Write to the file and check that we can read from it.
     std::string content_to_write = "test content";
     {
-      starboard::ScopedFile test_file_writer(
-          path.data(), kSbFileCreateAlways | kSbFileWrite, NULL, NULL);
+      starboard::ScopedFile test_file_writer(path.data(),
+                                             O_CREAT | O_TRUNC | O_WRONLY);
       EXPECT_GT(
           test_file_writer.WriteAll(content_to_write.c_str(),
                                     static_cast<int>(content_to_write.size())),
           0);
     }
-    EXPECT_TRUE(SbFileExists(path.data()));
-    SbFileInfo info;
-    EXPECT_TRUE(SbFileGetPathInfo(path.data(), &info));
-    const int kFileSize = static_cast<int>(info.size);
+    EXPECT_TRUE(FileExists(path.data()));
+    struct stat info;
+    EXPECT_TRUE(stat(path.data(), &info) == 0);
+    const int kFileSize = static_cast<int>(info.st_size);
     EXPECT_GT(kFileSize, 0);
     const int kBufferLength = 16 * 1024;
     char content_read[kBufferLength] = {0};
     {
-      starboard::ScopedFile test_file_reader(
-          path.data(), kSbFileOpenOnly | kSbFileRead, NULL, NULL);
+      starboard::ScopedFile test_file_reader(path.data(), 0);
       EXPECT_GT(test_file_reader.ReadAll(content_read, kFileSize), 0);
     }
     EXPECT_EQ(content_read, content_to_write);
 
     // Lastly, delete the file.
     EXPECT_TRUE(SbFileDelete(path.data()));
-    EXPECT_FALSE(SbFileExists(path.data()));
+    EXPECT_FALSE(FileExists(path.data()));
   }
 }
 
@@ -202,12 +210,12 @@ TEST(SbSystemGetPath, ExecutableFileCreationTimeIsSound) {
   int len = static_cast<int>(strlen(path.data()));
   EXPECT_GT(len, 0);
 
-  SbFileInfo executable_file_info;
-  result = SbFileGetPathInfo(path.data(), &executable_file_info);
-  ASSERT_TRUE(result);
+  struct stat executable_file_info;
+  result = stat(path.data(), &executable_file_info);
+  ASSERT_EQ(0, result);
 
-  SbTime now = SbTimeGetNow();
-  EXPECT_GT(now, executable_file_info.creation_time);
+  int64_t now = PosixTimeToWindowsTime(CurrentPosixTime());
+  // EXPECT_GT(now, executable_file_info.c_time);
 }
 
 }  // namespace

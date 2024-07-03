@@ -19,11 +19,11 @@
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 
-#if SB_HAS_QUIRK(SOCKET_BSD_HEADERS)
+#if !defined(_GNU_SOURCE)
 #include <errno.h>
 #include <net/if.h>
 #include <net/if_dl.h>
-#else
+#else  // _GNU_SOURCE is set for Linux
 #include <linux/if.h>
 #include <linux/if_addr.h>
 #include <netdb.h>
@@ -34,7 +34,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include "starboard/common/byte_swap.h"
 #include "starboard/common/log.h"
 #include "starboard/memory.h"
 #include "starboard/shared/posix/socket_internal.h"

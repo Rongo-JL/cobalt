@@ -1,21 +1,21 @@
 name: "libcxxabi"
 description:
-  "Filtered subtree at third_party/llvm-project/libcxxabi."
+  "Subdirectory subtree of llvm-project."
 
 third_party {
-  url {
-    type: LOCAL_SOURCE
-    value: "https://cobalt.googlesource.com/third_party/llvm-project/libcxxabi_filtered_mirror"
+  identifier {
+    type: "ChromiumVersion"
+    value: "114.0.5735.358"  # from https://chromereleases.googleblog.com/2024/03/long-term-support-channel-update-for_26.html
   }
-  url {
-    type: GIT
-    value: "https://github.com/llvm/llvm-project.git"
+  identifier {
+    type: "Git"
+    value: "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxxabi.git"
+    version: "307bd163607c315d46103ebe1d68aab44bf93986"
+    # from https://chromium.googlesource.com/chromium/src/+/114.0.5735.358/DEPS#467
   }
-  # Closest commit hash to llvm-project's 39da55e8f548a11f7dadefa73ea73d809a5f1729.
-  version: "ae56bdc07c05dc3920476eef7adad00fd2548782"
   last_upgrade_date {
-    year: 2023
-    month: 1
-    day: 17
+    year: 2024
+    month: 2
+    day: 21
   }
 }

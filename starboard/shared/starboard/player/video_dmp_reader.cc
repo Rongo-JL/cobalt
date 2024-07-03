@@ -36,7 +36,7 @@ int64_t CalculateAverageBitrate(const std::vector<AccessUnit>& access_units) {
     return 1024;
   }
 
-  SbTime duration =
+  int64_t duration =
       access_units.back().timestamp() - access_units.front().timestamp();
 
   SB_DCHECK(duration > 0);
@@ -46,7 +46,7 @@ int64_t CalculateAverageBitrate(const std::vector<AccessUnit>& access_units) {
     total_bitrate += au.data().size();
   }
 
-  return total_bitrate * 8 * kSbTimeSecond / duration;
+  return total_bitrate * 8 * 1'000'000LL / duration;
 }
 
 static void DeallocateSampleFunc(SbPlayer player,
@@ -150,8 +150,20 @@ std::string VideoDmpReader::audio_mime_type() const {
     case kSbMediaAudioCodecEac3:
       ss << "audio/mp4; codecs=\"ec-3\";";
       break;
+    case kSbMediaAudioCodecVorbis:
+      ss << "audio/webm; codecs=\"vorbis\";";
+      break;
+    case kSbMediaAudioCodecMp3:
+      ss << "audio/mpeg; codecs=\"mp3\";";
+      break;
+    case kSbMediaAudioCodecFlac:
+      ss << "audio/ogg; codecs=\"flac\";";
+      break;
+    case kSbMediaAudioCodecPcm:
+      ss << "audio/wav; codecs=\"1\";";
+      break;
     default:
-      SB_NOTREACHED();
+      SB_NOTREACHED() << "Unsupported audio codec: " << dmp_info_.audio_codec;
   }
 
   ss << " channels="
@@ -175,8 +187,14 @@ std::string VideoDmpReader::video_mime_type() {
     case kSbMediaVideoCodecAv1:
       ss << "video/mp4; codecs=\"av01.0.08M.08\";";
       break;
+    case kSbMediaVideoCodecVp8:
+      ss << "video/webm; codecs=\"vp8\";";
+      break;
+    case kSbMediaVideoCodecH265:
+      ss << "video/mp4; codecs=\"hev1.1.6.L123.B0\";";
+      break;
     default:
-      SB_NOTREACHED();
+      SB_NOTREACHED() << "Unsupported video codec: " << dmp_info_.video_codec;
   }
   if (number_of_video_buffers() > 0) {
     const auto& video_stream_info = this->video_stream_info();
@@ -305,8 +323,8 @@ void VideoDmpReader::Parse() {
   }
   // Guestimate the video fps.
   if (video_access_units_.size() > 1) {
-    SbTime first_timestamp = video_access_units_.front().timestamp();
-    SbTime second_timestamp = video_access_units_.back().timestamp();
+    int64_t first_timestamp = video_access_units_.front().timestamp();
+    int64_t second_timestamp = video_access_units_.back().timestamp();
     for (const auto& au : video_access_units_) {
       if (au.timestamp() != first_timestamp &&
           au.timestamp() < second_timestamp) {
@@ -314,10 +332,10 @@ void VideoDmpReader::Parse() {
       }
     }
     SB_DCHECK(first_timestamp < second_timestamp);
-    SbTime frame_duration = second_timestamp - first_timestamp;
-    dmp_info_.video_fps = kSbTimeSecond / frame_duration;
+    int64_t frame_duration = second_timestamp - first_timestamp;
+    dmp_info_.video_fps = 1'000'000LL / frame_duration;
 
-    SbTime last_frame_timestamp = video_access_units_.back().timestamp();
+    int64_t last_frame_timestamp = video_access_units_.back().timestamp();
     for (auto it = video_access_units_.rbegin();
          it != video_access_units_.rend(); it++) {
       if (it->timestamp() > last_frame_timestamp) {
@@ -351,7 +369,7 @@ void VideoDmpReader::EnsureSampleLoaded(SbMediaType type, size_t index) {
 }
 
 VideoDmpReader::AudioAccessUnit VideoDmpReader::ReadAudioAccessUnit() {
-  SbTime timestamp;
+  int64_t timestamp;
   Read(read_cb_, reverse_byte_order_.value(), &timestamp);
 
   bool drm_sample_info_present;
@@ -376,7 +394,7 @@ VideoDmpReader::AudioAccessUnit VideoDmpReader::ReadAudioAccessUnit() {
 }
 
 VideoDmpReader::VideoAccessUnit VideoDmpReader::ReadVideoAccessUnit() {
-  SbTime timestamp;
+  int64_t timestamp;
   Read(read_cb_, reverse_byte_order_.value(), &timestamp);
 
   bool drm_sample_info_present;

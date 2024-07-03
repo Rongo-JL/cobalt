@@ -14,6 +14,8 @@
 
 #include "starboard/shared/starboard/player/filter/media_time_provider_impl.h"
 
+#include <utility>
+
 #include "starboard/common/log.h"
 
 namespace starboard {
@@ -23,8 +25,8 @@ namespace player {
 namespace filter {
 
 MediaTimeProviderImpl::MediaTimeProviderImpl(
-    scoped_ptr<MonotonicSystemTimeProvider> system_time_provider)
-    : system_time_provider_(system_time_provider.Pass()) {
+    std::unique_ptr<MonotonicSystemTimeProvider> system_time_provider)
+    : system_time_provider_(std::move(system_time_provider)) {
   SB_DCHECK(system_time_provider_);
 }
 
@@ -64,7 +66,7 @@ void MediaTimeProviderImpl::SetPlaybackRate(double playback_rate) {
   playback_rate_ = playback_rate;
 }
 
-void MediaTimeProviderImpl::Seek(SbTime seek_to_time) {
+void MediaTimeProviderImpl::Seek(int64_t seek_to_time) {
   SB_DCHECK(BelongsToCurrentThread());
 
   ScopedLock scoped_lock(mutex_);
@@ -77,13 +79,13 @@ void MediaTimeProviderImpl::Seek(SbTime seek_to_time) {
   CancelPendingJobs();
 }
 
-SbTime MediaTimeProviderImpl::GetCurrentMediaTime(bool* is_playing,
-                                                  bool* is_eos_played,
-                                                  bool* is_underflow,
-                                                  double* playback_rate) {
+int64_t MediaTimeProviderImpl::GetCurrentMediaTime(bool* is_playing,
+                                                   bool* is_eos_played,
+                                                   bool* is_underflow,
+                                                   double* playback_rate) {
   ScopedLock scoped_lock(mutex_);
 
-  SbTime current = GetCurrentMediaTime_Locked();
+  int64_t current = GetCurrentMediaTime_Locked();
 
   *is_playing = is_playing_;
   *is_eos_played = false;
@@ -93,11 +95,11 @@ SbTime MediaTimeProviderImpl::GetCurrentMediaTime(bool* is_playing,
   return current;
 }
 
-SbTime MediaTimeProviderImpl::GetCurrentMediaTime_Locked(
-    SbTimeMonotonic* current_time /*= NULL*/) {
+int64_t MediaTimeProviderImpl::GetCurrentMediaTime_Locked(
+    int64_t* current_time /*= NULL*/) {
   mutex_.DCheckAcquired();
 
-  SbTimeMonotonic now = system_time_provider_->GetMonotonicNow();
+  int64_t now = system_time_provider_->GetMonotonicNow();
 
   if (!is_playing_ || playback_rate_ == 0.0) {
     if (current_time) {
@@ -106,7 +108,7 @@ SbTime MediaTimeProviderImpl::GetCurrentMediaTime_Locked(
     return seek_to_time_;
   }
 
-  SbTimeMonotonic elapsed = (now - seek_to_time_set_at_) * playback_rate_;
+  int64_t elapsed = (now - seek_to_time_set_at_) * playback_rate_;
   if (current_time) {
     *current_time = now;
   }

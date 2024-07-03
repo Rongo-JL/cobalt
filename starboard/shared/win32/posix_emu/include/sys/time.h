@@ -15,9 +15,9 @@
 #ifndef STARBOARD_SHARED_WIN32_POSIX_EMU_INCLUDE_SYS_TIME_H_
 #define STARBOARD_SHARED_WIN32_POSIX_EMU_INCLUDE_SYS_TIME_H_
 
-#if defined(STARBOARD)
-
 #include <winsock2.h>  // For struct timeval
+
+#include "starboard/shared/win32/posix_emu/include/remove_problematic_windows_macros.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,7 +33,5 @@ int gettimeofday(struct timeval* tp, void* tzp);
 #ifdef __cplusplus
 }
 #endif  // __cplusplus
-
-#endif  // defined(STARBOARD)
 
 #endif  // STARBOARD_SHARED_WIN32_POSIX_EMU_INCLUDE_SYS_TIME_H_

@@ -15,6 +15,7 @@
 #ifndef STARBOARD_SHARED_LIBVPX_VPX_VIDEO_DECODER_H_
 #define STARBOARD_SHARED_LIBVPX_VPX_VIDEO_DECODER_H_
 
+#include <memory>
 #include <queue>
 #include <string>
 
@@ -47,7 +48,7 @@ class VideoDecoder : public starboard::player::filter::VideoDecoder,
   void Initialize(const DecoderStatusCB& decoder_status_cb,
                   const ErrorCB& error_cb) override;
   size_t GetPrerollFrameCount() const override { return 8; }
-  SbTime GetPrerollTimeout() const override { return kSbTimeMax; }
+  int64_t GetPrerollTimeout() const override { return kSbInt64Max; }
   size_t GetMaxNumberOfCachedFrames() const override { return 12; }
 
   void WriteInputBuffers(const InputBuffers& input_buffers) override;
@@ -79,13 +80,13 @@ class VideoDecoder : public starboard::player::filter::VideoDecoder,
 
   int current_frame_width_;
   int current_frame_height_;
-  scoped_ptr<vpx_codec_ctx> context_;
+  std::unique_ptr<vpx_codec_ctx> context_;
 
   bool stream_ended_;
   bool error_occurred_;
 
   // Working thread to avoid lengthy decoding work block the player thread.
-  scoped_ptr<starboard::player::JobThread> decoder_thread_;
+  std::unique_ptr<starboard::player::JobThread> decoder_thread_;
 
   // Decode-to-texture related state.
   SbPlayerOutputMode output_mode_;

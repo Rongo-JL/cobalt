@@ -18,7 +18,6 @@
 #include "starboard/common/socket.h"
 #include "starboard/nplb/socket_helpers.h"
 #include "starboard/socket_waiter.h"
-#include "starboard/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace starboard {
@@ -122,7 +121,7 @@ TEST_P(PairSbSocketWaiterWaitTimedTest, SunnyDay) {
   EXPECT_TRUE(SbSocketWaiterDestroy(waiter));
 }
 
-TEST_F(SbSocketWaiterWaitTimedTest, RainyDayInvalidWaiter) {
+TEST(SbSocketWaiterWaitTimedTest, RainyDayInvalidWaiter) {
   TimedWaitShouldNotBlock(kSbSocketWaiterInvalid, kSocketTimeout);
 }
 

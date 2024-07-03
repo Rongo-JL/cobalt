@@ -16,6 +16,7 @@
 #define STARBOARD_SHARED_UWP_AUDIO_RENDERER_PASSTHROUGH_H_
 
 #include <functional>
+#include <memory>
 #include <queue>
 
 #include "starboard/atomic.h"
@@ -31,7 +32,6 @@
 #include "starboard/shared/starboard/player/input_buffer_internal.h"
 #include "starboard/shared/starboard/player/job_queue.h"
 #include "starboard/shared/uwp/wasapi_audio_sink.h"
-#include "starboard/time.h"
 #include "starboard/types.h"
 
 namespace starboard {
@@ -50,7 +50,7 @@ class AudioRendererPassthrough : public AudioRenderer,
  public:
   typedef starboard::media::AudioStreamInfo AudioStreamInfo;
 
-  AudioRendererPassthrough(scoped_ptr<AudioDecoder> audio_decoder,
+  AudioRendererPassthrough(std::unique_ptr<AudioDecoder> audio_decoder,
                            const AudioStreamInfo& audio_stream_info);
   ~AudioRendererPassthrough() override;
 
@@ -70,11 +70,11 @@ class AudioRendererPassthrough : public AudioRenderer,
   void Play() override;
   void Pause() override;
   void SetPlaybackRate(double playback_rate) override;
-  void Seek(SbTime seek_to_time) override;
-  SbTime GetCurrentMediaTime(bool* is_playing,
-                             bool* is_eos_played,
-                             bool* is_underflow,
-                             double* playback_rate) override;
+  void Seek(int64_t seek_to_time) override;
+  int64_t GetCurrentMediaTime(bool* is_playing,
+                              bool* is_eos_played,
+                              bool* is_underflow,
+                              double* playback_rate) override;
 
  private:
   void OnDecoderConsumed();
@@ -87,11 +87,11 @@ class AudioRendererPassthrough : public AudioRenderer,
   // output.
   void TryToEndStream();
 
-  // Calculates the playback time elapsed since the last time the timestamp was
-  // queried using WASAPIAudioSink::GetCurrentPlaybackTime().
-  SbTime CalculateElapsedPlaybackTime(uint64_t update_time);
-  // Calculates the final output timestamp of a DecodedAudio.
-  SbTime CalculateLastOutputTime(scoped_refptr<DecodedAudio>& decoded_audio);
+  // Calculates the playback time elapsed (microseconds) since the last time the
+  // timestamp was queried using WASAPIAudioSink::GetCurrentPlaybackTime().
+  int64_t CalculateElapsedPlaybackTime(uint64_t update_time);
+  // Calculates the final output timestamp (microseconds) of a DecodedAudio.
+  int64_t CalculateLastOutputTime(scoped_refptr<DecodedAudio>& decoded_audio);
 
   const int kMaxDecodedAudios = 16;
   // About 250 ms of (E)AC3 audio.
@@ -105,7 +105,7 @@ class AudioRendererPassthrough : public AudioRenderer,
   bool paused_ = true;
   bool seeking_ = false;
   double playback_rate_ = 1.0;
-  SbTime seeking_to_time_ = 0;
+  int64_t seeking_to_time_ = 0;
 
   atomic_bool end_of_stream_written_{false};
   atomic_bool end_of_stream_played_{false};
@@ -122,8 +122,8 @@ class AudioRendererPassthrough : public AudioRenderer,
 
   const int channels_;
   const SbMediaAudioCodec codec_ = kSbMediaAudioCodecNone;
-  scoped_ptr<AudioDecoder> decoder_;
-  scoped_ptr<WASAPIAudioSink> sink_;
+  std::unique_ptr<AudioDecoder> decoder_;
+  std::unique_ptr<WASAPIAudioSink> sink_;
 
   // |iec_sample_rate_| is the sample rate of the stream when stored in an IEC
   // 61937 format. This may be different from the decoded sample rate.

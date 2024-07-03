@@ -38,7 +38,7 @@ env:
   STARBOARD_TOOLCHAINS_DIR: /root/starboard-toolchains
 
 concurrency:
-  group: '${{ github.workflow }}-${{ github.event_name }}-${{ inputs.platform }} @ ${{ github.event.label.name || github.event.pull_request.number || github.sha }}'
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ inputs.platform }} @ ${{ github.event.label.name || github.event.pull_request.number || github.sha }} @ ${{ github.event.label.name && github.event.pull_request.number || github.event.action }}
   cancel-in-progress: true
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
@@ -55,11 +55,13 @@ jobs:
     # All triggers except draft PRs, unless PR is labeled with runtest
     if: |
       github.event.action != 'labeled' ||
+      github.event.pull_request.merged == false &&
       (
         github.event.action == 'labeled' &&
         github.event.label.name == 'runtest' ||
         github.event.label.name == 'on_device'
       )
+    timeout-minutes: 10
     steps:
       - id: Checkout
         uses: kaidokert/checkout@v3.5.999 # Temporary version
@@ -112,6 +114,11 @@ jobs:
         run: |
           docker_runner_service=$(cat ${GITHUB_WORKSPACE}/.github/config/${{ inputs.platform }}.json | jq -rc '.docker_runner_service')
           echo "docker_runner_service=${docker_runner_service}" >> $GITHUB_ENV
+      - id: set-runner-tag
+        shell: bash
+        run: |
+          runner_tag=$(cat ${GITHUB_WORKSPACE}/.github/config/${{ inputs.platform }}.json | jq -rc '.runner_tag')
+          echo "runner_tag=${runner_tag}" >> $GITHUB_ENV
     outputs:
       platforms: ${{ env.platforms }}
       includes: ${{ env.includes }}
@@ -120,12 +127,14 @@ jobs:
       on_host_test_shards: ${{ env.on_host_test_shards }}
       docker_service: ${{ env.docker_service }}
       docker_runner_service: ${{ env.docker_runner_service }}
+      runner_tag: ${{ env.runner_tag }}
   # Build windows docker images.
   build-docker-image:
     needs: [initialize]
     permissions:
       packages: write
     runs-on: windows-2019
+    timeout-minutes: 120
     steps:
       - name: Checkout files
         uses: kaidokert/checkout@v3.5.999
@@ -152,7 +161,7 @@ jobs:
   build:
     needs: [initialize]
     permissions: {}
-    runs-on: [self-hosted, win32]
+    runs-on: [self-hosted, "${{ needs.initialize.outputs.runner_tag }}"]
     name: ${{matrix.name}}_${{matrix.config}}
     strategy:
       fail-fast: false
@@ -160,6 +169,7 @@ jobs:
         platform: ${{ fromJson(needs.initialize.outputs.platforms) }}
         include: ${{ fromJson(needs.initialize.outputs.includes) }}
         config: [devel, debug, qa, gold]
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: kaidokert/checkout@v3.5.999
@@ -186,7 +196,7 @@ jobs:
     needs: [initialize, build]
     permissions: {}
     if: needs.initialize.outputs.on_host_test == 'true'
-    runs-on: [self-hosted, win32]
+    runs-on: [self-hosted, "${{ needs.initialize.outputs.runner_tag }}"]
     name: ${{matrix.name}}_${{matrix.shard}}_test
     strategy:
       fail-fast: false
@@ -197,6 +207,7 @@ jobs:
         include: ${{ fromJson(needs.initialize.outputs.includes) }}
     env:
       MODULAR_BUILD: ${{ inputs.modular && 1 || 0 }}
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: kaidokert/checkout@v3.5.999

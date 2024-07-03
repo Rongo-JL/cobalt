@@ -27,8 +27,8 @@
 // Inhibit C++ name-mangling for libjpeg functions.
 extern "C" {
 // clang-format off
-#include "third_party/libjpeg-turbo/jpeglib.h"
-#include "third_party/libjpeg-turbo/jpegint.h"
+#include "third_party/libjpeg_turbo/jpeglib.h"
+#include "third_party/libjpeg_turbo/jpegint.h"
 // clang-format on
 }
 
@@ -165,9 +165,7 @@ bool ReadLines(jpeg_decompress_struct* info,
       case kSbDecodeTargetFormat2PlaneYUVNV12:
       case kSbDecodeTargetFormat3PlaneYUVI420:
       case kSbDecodeTargetFormat3Plane10BitYUVI420:
-#if SB_API_VERSION >= 14
       case kSbDecodeTargetFormat3Plane10BitYUVI420Compact:
-#endif  // SB_API_VERSION >= 14
       case kSbDecodeTargetFormat1PlaneUYVY:
       case kSbDecodeTargetFormatInvalid:
         SB_NOTREACHED();

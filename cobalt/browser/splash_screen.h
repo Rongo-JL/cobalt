@@ -57,21 +57,21 @@ class SplashScreen : public LifecycleObserver {
   }
 
   // LifecycleObserver implementation.
-  void Blur(int64_t timestamp) override { web_module_->Blur(0); }
+  void Blur(int64_t timestamp) override { web_module_->Blur(timestamp); }
   void Conceal(render_tree::ResourceProvider* resource_provider,
                int64_t timestamp) override {
-    web_module_->Conceal(resource_provider, 0);
+    web_module_->Conceal(resource_provider, timestamp);
   }
-  void Freeze(int64_t timestamp) override { web_module_->Freeze(0); }
+  void Freeze(int64_t timestamp) override { web_module_->Freeze(timestamp); }
   void Unfreeze(render_tree::ResourceProvider* resource_provider,
                 int64_t timestamp) override {
-    web_module_->Unfreeze(resource_provider, 0);
+    web_module_->Unfreeze(resource_provider, timestamp);
   }
   void Reveal(render_tree::ResourceProvider* resource_provider,
               int64_t timestamp) override {
-    web_module_->Reveal(resource_provider, 0);
+    web_module_->Reveal(resource_provider, timestamp);
   }
-  void Focus(int64_t timestamp) override { web_module_->Focus(0); }
+  void Focus(int64_t timestamp) override { web_module_->Focus(timestamp); }
 
   void ReduceMemory() { web_module_->ReduceMemory(); }
 
@@ -98,12 +98,12 @@ class SplashScreen : public LifecycleObserver {
 
   std::unique_ptr<WebModule> web_module_;
 
-  // The splash screen runs on this message loop.
-  base::MessageLoop* const self_message_loop_;
+  // The splash screen runs on this task runner.
+  base::SequencedTaskRunner* const task_runner_;
 
   // This is called by Shutdown (via window.close) or after
   // the time limit has been exceeded.
-  base::CancelableCallback<void(base::TimeDelta)>
+  base::CancelableRepeatingCallback<void(base::TimeDelta)>
       on_splash_screen_shutdown_complete_;
 
   // True if SplashScreen::Shutdown() has been called.

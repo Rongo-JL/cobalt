@@ -14,6 +14,8 @@
 
 #include "starboard/loader_app/drain_file.h"
 
+#include <dirent.h>
+
 #include <algorithm>
 #include <cstring>
 #include <string>
@@ -22,6 +24,7 @@
 #include "starboard/common/file.h"
 #include "starboard/common/log.h"
 #include "starboard/common/string.h"
+#include "starboard/common/time.h"
 #include "starboard/configuration_constants.h"
 #include "starboard/directory.h"
 #include "starboard/string.h"
@@ -30,8 +33,8 @@
 extern "C" {
 #endif
 
-const SbTime kDrainFileAgeUnit = kSbTimeSecond;
-const SbTime kDrainFileMaximumAge = kSbTimeHour;
+const int64_t kDrainFileAgeUnitUsec = 1'000'000;                 // 1 second
+const int64_t kDrainFileMaximumAgeUsec = 1'000'000LL * 60 * 60;  // 1 hour
 const char kDrainFilePrefix[] = "d_";
 
 #ifdef __cplusplus
@@ -53,7 +56,7 @@ std::string ExtractAppKey(const std::string& str) {
   return str.substr(begin, end - begin);
 }
 
-SbTime ExtractTimestamp(const std::string& str) {
+int64_t ExtractTimestamp(const std::string& str) {
   const size_t index = str.find_last_of('_') + 1;
 
   if ((index == std::string::npos) || (index == str.size() - 1))
@@ -61,19 +64,20 @@ SbTime ExtractTimestamp(const std::string& str) {
 
   const std::string timestamp = str.substr(index, str.size() - index);
 
-  return SbTime(strtoull(timestamp.c_str(), NULL, 10)) * kDrainFileAgeUnit;
+  return strtoull(timestamp.c_str(), NULL, 10) * kDrainFileAgeUnitUsec;
 }
 
 bool IsExpired(const std::string& filename) {
-  const SbTime timestamp = ExtractTimestamp(filename);
-  return timestamp + kDrainFileMaximumAge < SbTimeGetNow();
+  const int64_t timestamp = ExtractTimestamp(filename);
+  return timestamp + kDrainFileMaximumAgeUsec <
+         PosixTimeToWindowsTime(CurrentPosixTime());
 }
 
 std::vector<std::string> FindAllWithPrefix(const std::string& dir,
                                            const std::string& prefix) {
-  SbDirectory slot = SbDirectoryOpen(dir.c_str(), NULL);
+  DIR* directory = opendir(dir.c_str());
 
-  if (!SbDirectoryIsValid(slot)) {
+  if (!directory) {
     SB_LOG(ERROR) << "Failed to open provided directory '" << dir << "'";
     return std::vector<std::string>();
   }
@@ -82,13 +86,23 @@ std::vector<std::string> FindAllWithPrefix(const std::string& dir,
 
   std::vector<char> filename(kSbFileMaxName);
 
-  while (SbDirectoryGetNext(slot, filename.data(), filename.size())) {
+  while (true) {
+    if (filename.size() < kSbFileMaxName || !directory || !filename.data()) {
+      break;
+    }
+    struct dirent dirent_buffer;
+    struct dirent* dirent;
+    int result = readdir_r(directory, &dirent_buffer, &dirent);
+    if (result || !dirent) {
+      break;
+    }
+    starboard::strlcpy(filename.data(), dirent->d_name, filename.size());
     if (!strcmp(filename.data(), ".") || !strcmp(filename.data(), ".."))
       continue;
     if (!strncmp(prefix.data(), filename.data(), prefix.size()))
       filenames.push_back(std::string(filename.data()));
   }
-  SbDirectoryClose(slot);
+  closedir(directory);
   return filenames;
 }
 
@@ -98,7 +112,8 @@ void Rank(const char* dir, char* app_key, size_t len) {
 
   std::vector<std::string> filenames = FindAllWithPrefix(dir, kDrainFilePrefix);
 
-  std::remove_if(filenames.begin(), filenames.end(), IsExpired);
+  filenames.erase(std::remove_if(filenames.begin(), filenames.end(), IsExpired),
+                  filenames.end());
 
   if (filenames.empty())
     return;
@@ -109,8 +124,8 @@ void Rank(const char* dir, char* app_key, size_t len) {
   // are equal.
   auto compare_filenames = [](const std::string& left,
                               const std::string& right) -> bool {
-    const SbTime left_timestamp = ExtractTimestamp(left);
-    const SbTime right_timestamp = ExtractTimestamp(right);
+    const int64_t left_timestamp = ExtractTimestamp(left);
+    const int64_t right_timestamp = ExtractTimestamp(right);
 
     if (left_timestamp != right_timestamp)
       return left_timestamp < right_timestamp;
@@ -152,7 +167,8 @@ bool TryDrain(const char* dir, const char* app_key) {
   std::string filename(kDrainFilePrefix);
   filename.append(app_key);
   filename.append("_");
-  filename.append(std::to_string(SbTimeGetNow() / kDrainFileAgeUnit));
+  filename.append(std::to_string(PosixTimeToWindowsTime(CurrentPosixTime()) /
+                                 kDrainFileAgeUnitUsec));
 
   SB_DCHECK(filename.size() <= kSbFileMaxName);
 

@@ -18,12 +18,12 @@
 #define STARBOARD_COMMON_THREAD_H_
 
 #include <functional>
+#include <memory>
 #include <string>
 
 #include "starboard/common/scoped_ptr.h"
 #include "starboard/configuration.h"
 #include "starboard/thread.h"
-#include "starboard/time.h"
 #include "starboard/types.h"
 
 namespace starboard {
@@ -33,13 +33,6 @@ class atomic_bool;
 
 class Thread {
  public:
-  struct Options {
-    Options();
-    int64_t stack_size;
-    SbThreadPriority priority_;
-    bool joinable = true;
-  };
-
   explicit Thread(const std::string& name);
   template <size_t N>
   explicit Thread(char const (&name)[N]) : Thread(std::string(name)) {
@@ -59,23 +52,23 @@ class Thread {
 
   // Called by the main thread, this will cause Run() to be invoked
   // on another thread.
-  virtual void Start(const Options& options = Options());
+  virtual void Start();
   virtual void Join();
   bool join_called() const;
 
  protected:
   static void* ThreadEntryPoint(void* context);
-  static void Sleep(SbTime microseconds);
+  static void Sleep(int64_t microseconds);
   static void SleepMilliseconds(int value);
 
   // Waits at most |timeout| microseconds for Join() to be called. If
   // Join() was called then return |true|, else |false|.
-  bool WaitForJoin(SbTime timeout);
+  bool WaitForJoin(int64_t timeout);
   Semaphore* join_sema();
   atomic_bool* joined_bool();
 
   struct Data;
-  scoped_ptr<Data> d_;
+  std::unique_ptr<Data> d_;
 
   Thread(const Thread&) = delete;
   void operator=(const Thread&) = delete;

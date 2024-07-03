@@ -22,13 +22,15 @@ const char kWindowNameKey[] = "name";
 }
 
 base::Optional<WindowId> WindowId::FromValue(const base::Value* value) {
-  std::string window_id;
-  const base::DictionaryValue* dictionary_value;
-  if (value->GetAsDictionary(&dictionary_value) &&
-      dictionary_value->GetString(kWindowNameKey, &window_id)) {
-    return WindowId(window_id);
+  const base::Value::Dict* dictionary_value = value->GetIfDict();
+  if (!dictionary_value) {
+    return absl::nullopt;
   }
-  return base::nullopt;
+  auto window_id = dictionary_value->FindString(kWindowNameKey);
+  if (!window_id) {
+    return absl::nullopt;
+  }
+  return WindowId(*window_id);
 }
 
 }  // namespace protocol

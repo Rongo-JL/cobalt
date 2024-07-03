@@ -19,19 +19,15 @@
 #ifndef STARBOARD_THREAD_H_
 #define STARBOARD_THREAD_H_
 
+#include <pthread.h>
+
 #include "starboard/configuration.h"
 #include "starboard/export.h"
-#include "starboard/time.h"
 #include "starboard/types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// An opaque handle to a thread type.
-typedef void* SbThread;
-
-#define kSbThreadInvalid (SbThread) NULL
 
 // A spectrum of thread priorities. Platforms map them appropriately to their
 // own priority system. Note that scheduling is platform-specific, and what
@@ -83,6 +79,36 @@ typedef enum SbThreadPriority {
 // An ID type that is unique per thread.
 typedef int32_t SbThreadId;
 
+// Well-defined constant value to mean "no thread ID."
+#define kSbThreadInvalidId (SbThreadId)0
+
+// Returns whether the given thread ID is valid.
+static inline bool SbThreadIsValidId(SbThreadId id) {
+  return id != kSbThreadInvalidId;
+}
+
+// Returns whether the given thread priority is valid.
+static inline bool SbThreadIsValidPriority(SbThreadPriority priority) {
+  return priority != kSbThreadNoPriority;
+}
+
+// Returns the Thread ID of the currently executing thread.
+SB_EXPORT SbThreadId SbThreadGetId();
+
+#if SB_API_VERSION >= 16
+// Set the thread priority of the current thread.
+SB_EXPORT bool SbThreadSetPriority(SbThreadPriority priority);
+
+// Get the thread priority of the current thread.
+SB_EXPORT bool SbThreadGetPriority(SbThreadPriority* priority);
+#endif
+
+#if SB_API_VERSION < 16
+// An opaque handle to a thread type.
+typedef void* SbThread;
+
+#define kSbThreadInvalid (SbThread) NULL
+
 // Function pointer type for SbThreadCreate.  |context| is a pointer-sized bit
 // of data passed in from the calling thread.
 typedef void* (*SbThreadEntryPoint)(void* context);
@@ -101,9 +127,6 @@ typedef struct SbThreadLocalKeyPrivate SbThreadLocalKeyPrivate;
 // A handle to a thread-local key.
 typedef SbThreadLocalKeyPrivate* SbThreadLocalKey;
 
-// Well-defined constant value to mean "no thread ID."
-#define kSbThreadInvalidId (SbThreadId)0
-
 // Well-defined constant value to mean "no affinity."
 #define kSbThreadNoAffinity (SbThreadAffinity) kSbInvalidInt
 
@@ -111,27 +134,17 @@ typedef SbThreadLocalKeyPrivate* SbThreadLocalKey;
 #define kSbThreadLocalKeyInvalid (SbThreadLocalKey) NULL
 
 // Returns whether the given thread handle is valid.
-static SB_C_INLINE bool SbThreadIsValid(SbThread thread) {
+static inline bool SbThreadIsValid(SbThread thread) {
   return thread != kSbThreadInvalid;
 }
 
-// Returns whether the given thread ID is valid.
-static SB_C_INLINE bool SbThreadIsValidId(SbThreadId id) {
-  return id != kSbThreadInvalidId;
-}
-
-// Returns whether the given thread priority is valid.
-static SB_C_INLINE bool SbThreadIsValidPriority(SbThreadPriority priority) {
-  return priority != kSbThreadNoPriority;
-}
-
 // Returns whether the given thread affinity is valid.
-static SB_C_INLINE bool SbThreadIsValidAffinity(SbThreadAffinity affinity) {
+static inline bool SbThreadIsValidAffinity(SbThreadAffinity affinity) {
   return affinity != kSbThreadNoAffinity;
 }
 
 // Returns whether the given thread local variable key is valid.
-static SB_C_INLINE bool SbThreadIsValidLocalKey(SbThreadLocalKey key) {
+static inline bool SbThreadIsValidLocalKey(SbThreadLocalKey key) {
   return key != kSbThreadLocalKeyInvalid;
 }
 
@@ -199,13 +212,10 @@ SB_EXPORT void SbThreadYield();
 // |duration|: The minimum amount of time, in microseconds, that the currently
 //   executing thread should sleep. The function is a no-op if this value is
 //   negative or |0|.
-SB_EXPORT void SbThreadSleep(SbTime duration);
+SB_EXPORT void SbThreadSleep(int64_t duration);
 
 // Returns the handle of the currently executing thread.
 SB_EXPORT SbThread SbThreadGetCurrent();
-
-// Returns the Thread ID of the currently executing thread.
-SB_EXPORT SbThreadId SbThreadGetId();
 
 // Indicates whether |thread1| and |thread2| refer to the same thread.
 //
@@ -260,9 +270,10 @@ SB_EXPORT bool SbThreadSetLocalValue(SbThreadLocalKey key, void* value);
 // Returns whether |thread| is the current thread.
 //
 // |thread|: The thread to check.
-static SB_C_INLINE bool SbThreadIsCurrent(SbThread thread) {
+static inline bool SbThreadIsCurrent(SbThread thread) {
   return SbThreadGetCurrent() == thread;
 }
+#endif
 
 // Private structure representing the context of a frozen thread.
 typedef struct SbThreadContextPrivate SbThreadContextPrivate;
@@ -274,7 +285,7 @@ typedef SbThreadContextPrivate* SbThreadContext;
 #define kSbThreadContextInvalid ((SbThreadContext)NULL)
 
 // Returns whether the given thread context is valid.
-static SB_C_INLINE bool SbThreadContextIsValid(SbThreadContext context) {
+static inline bool SbThreadContextIsValid(SbThreadContext context) {
   return context != kSbThreadContextInvalid;
 }
 
@@ -310,7 +321,7 @@ typedef SbThreadSamplerPrivate* SbThreadSampler;
 #define kSbThreadSamplerInvalid ((SbThreadSampler)NULL)
 
 // Returns whether the given thread sampler is valid.
-static SB_C_INLINE bool SbThreadSamplerIsValid(SbThreadSampler sampler) {
+static inline bool SbThreadSamplerIsValid(SbThreadSampler sampler) {
   return sampler != kSbThreadSamplerInvalid;
 }
 
@@ -324,7 +335,11 @@ SB_EXPORT bool SbThreadSamplerIsSupported();
 //
 // If successful, this function returns the newly created handle.
 // If unsuccessful, this function returns |kSbThreadSamplerInvalid|.
+#if SB_API_VERSION < 16
 SB_EXPORT SbThreadSampler SbThreadSamplerCreate(SbThread thread);
+#else
+SB_EXPORT SbThreadSampler SbThreadSamplerCreate(pthread_t thread);
+#endif
 
 // Destroys the |sampler| and frees whatever resources it was using.
 SB_EXPORT void SbThreadSamplerDestroy(SbThreadSampler sampler);

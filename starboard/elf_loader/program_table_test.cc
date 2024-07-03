@@ -14,15 +14,14 @@
 
 #include "starboard/elf_loader/program_table.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "starboard/common/scoped_ptr.h"
 #include "starboard/elf_loader/file.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if SB_CAN(MAP_EXECUTABLE_MEMORY)
 namespace starboard {
 namespace elf_loader {
 
@@ -88,7 +87,7 @@ class ProgramTableTest : public ::testing::Test {
   void HelperMethod() {}
 
  protected:
-  scoped_ptr<ProgramTable> program_table_;
+  std::unique_ptr<ProgramTable> program_table_;
 };
 
 TEST_F(ProgramTableTest, LoadSegments) {
@@ -189,4 +188,3 @@ TEST_F(ProgramTableTest, LoadSegments) {
 }  // namespace
 }  // namespace elf_loader
 }  // namespace starboard
-#endif  // SB_CAN(MAP_EXECUTABLE_MEMORY)

@@ -30,8 +30,8 @@
 #include "cobalt/dom/document.h"
 #include "cobalt/dom/html_element_context.h"
 #include "cobalt/dom/window.h"
+#include "cobalt/network/disk_cache/resource_type.h"
 #include "cobalt/web/csp_delegate.h"
-#include "starboard/common/time.h"
 #include "url/gurl.h"
 
 namespace cobalt {
@@ -145,7 +145,7 @@ void HTMLLinkElement::set_cross_origin(
 void HTMLLinkElement::OnRemovedFromDocument() {
   HTMLElement::OnRemovedFromDocument();
 
-  DCHECK(base::MessageLoop::current());
+  DCHECK(base::SequencedTaskRunner::GetCurrentDefault());
   ReleaseLoader();
 
   if (style_sheet_) {
@@ -180,7 +180,7 @@ void HTMLLinkElement::Obtain() {
     return;
   }
 
-  DCHECK(base::MessageLoop::current());
+  DCHECK(base::SequencedTaskRunner::GetCurrentDefault());
   DCHECK(!loader_);
 
   // 1. If the href attribute's value is the empty string, then abort these
@@ -277,7 +277,7 @@ void HTMLLinkElement::OnLoadingComplete(
   // GetLoadTimingInfo and create resource timing before loader released.
   GetLoadTimingInfoAndCreateResourceTiming();
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::Bind(&HTMLLinkElement::ReleaseLoader, this));
 
   if (!error) return;
@@ -318,11 +318,13 @@ void HTMLLinkElement::OnSplashscreenLoaded(Document* document,
 
 void HTMLLinkElement::OnStylesheetLoaded(Document* document,
                                          const std::string& content) {
-  auto before_parse_micros = starboard::CurrentMonotonicTime();
+  auto before_parse_micros =
+      (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds();
   scoped_refptr<cssom::CSSStyleSheet> css_style_sheet =
       document->html_element_context()->css_parser()->ParseStyleSheet(
           content, base::SourceLocation(href(), 1, 1));
-  auto after_parse_micros = starboard::CurrentMonotonicTime();
+  auto after_parse_micros =
+      (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds();
   auto css_kb = content.length() / 1000;
   // Only measure non-trivial CSS sizes and ignore non-HTTP schemes (e.g.,
   // file://), which are primarily used for debug purposes.

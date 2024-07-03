@@ -41,13 +41,14 @@ bool GetCacheDirectory(char* out_path, int path_size) {
                                                       kMaxPathSize)) {
     return false;
   }
-  int result =
-      SbStringFormatF(out_path, path_size, "%s/.cache", home_path.data());
+  int result = snprintf(out_path, path_size, "%s/.cache", home_path.data());
   if (result < 0 || result >= path_size) {
     out_path[0] = '\0';
     return false;
   }
-  return SbDirectoryCreate(out_path);
+  struct stat info;
+  return mkdir(out_path, 0700) == 0 ||
+         (stat(out_path, &info) == 0 && S_ISDIR(info.st_mode));
 }
 
 // Gets the path to the storage directory, using the home directory.
@@ -57,13 +58,15 @@ bool GetStorageDirectory(char* out_path, int path_size) {
                                                       kMaxPathSize)) {
     return false;
   }
-  int result = SbStringFormatF(out_path, path_size, "%s/.cobalt_storage",
-                               home_path.data());
+  int result =
+      snprintf(out_path, path_size, "%s/.cobalt_storage", home_path.data());
   if (result < 0 || result >= path_size) {
     out_path[0] = '\0';
     return false;
   }
-  return SbDirectoryCreate(out_path);
+  struct stat info;
+  return mkdir(out_path, 0700) == 0 ||
+         (stat(out_path, &info) == 0 && S_ISDIR(info.st_mode));
 }
 
 // Places up to |path_size| - 1 characters of the path to the current
@@ -159,8 +162,8 @@ bool GetTemporaryDirectory(char* out_path, int path_size) {
     return false;
   }
 
-  int result = SbStringFormatF(out_path, path_size, "/tmp/%s-%d",
-                               binary_name.data(), static_cast<int>(getpid()));
+  int result = snprintf(out_path, path_size, "/tmp/%s-%d", binary_name.data(),
+                        static_cast<int>(getpid()));
   if (result < 0 || result >= path_size) {
     out_path[0] = '\0';
     return false;
@@ -215,7 +218,9 @@ bool SbSystemGetPath(SbSystemPathId path_id, char* out_path, int path_size) {
       if (starboard::strlcat(path.data(), "/cobalt", kPathSize) >= kPathSize) {
         return false;
       }
-      if (!SbDirectoryCreate(path.data())) {
+      struct stat info;
+      if (mkdir(path.data(), 0700) != 0 &&
+          !(stat(path.data(), &info) == 0 && S_ISDIR(info.st_mode))) {
         return false;
       }
       break;
@@ -228,21 +233,15 @@ bool SbSystemGetPath(SbSystemPathId path_id, char* out_path, int path_size) {
       if (starboard::strlcat(path.data(), "/log", kPathSize) >= kPathSize) {
         return false;
       }
-      SbDirectoryCreate(path.data());
+      mkdir(path.data(), 0700);
       break;
 
     case kSbSystemPathTempDirectory:
       if (!GetTemporaryDirectory(path.data(), kPathSize)) {
         return false;
       }
-      SbDirectoryCreate(path.data());
+      mkdir(path.data(), 0700);
       break;
-
-#if SB_API_VERSION < 14
-    case kSbSystemPathTestOutputDirectory:
-      return SbSystemGetPath(kSbSystemPathDebugOutputDirectory, out_path,
-                             path_size);
-#endif  // #if SB_API_VERSION < 14
 
     case kSbSystemPathExecutableFile:
       return GetExecutablePath(out_path, path_size);

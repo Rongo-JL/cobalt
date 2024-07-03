@@ -21,6 +21,7 @@
 
 #include "base/containers/hash_tables.h"
 #include "base/threading/thread.h"
+#include "base/threading/thread_checker.h"
 #include "base/values.h"
 #include "cobalt/base/c_val.h"
 #include "cobalt/webdriver/protocol/server_status.h"
@@ -53,6 +54,9 @@ class WebDriverServer : public net::HttpServer::Delegate {
   // client.
   class ResponseHandler {
    public:
+    static const int kMaxRecieveBufferSize = 2 * 1024 * 1024;  // 2 Mbytes.
+    static const int kMaxSendBufferSize = 8 * 1024 * 1024;     // 8 Mbytes.
+
     // Called after a successful WebDriver command.
     // https://www.selenium.dev/documentation/legacy/json_wire_protocol/#responses
     virtual void Success(std::unique_ptr<base::Value>) = 0;
@@ -96,7 +100,7 @@ class WebDriverServer : public net::HttpServer::Delegate {
 
   void OnWebSocketRequest(int, const net::HttpServerRequestInfo&) override {}
 
-  void OnWebSocketMessage(int, const std::string&) override {}
+  void OnWebSocketMessage(int, std::string) override {}
 
   void OnClose(int) override {}  // NOLINT(readability/casting)
 

@@ -21,9 +21,9 @@
 #include "starboard/common/string.h"
 #include "starboard/shared/starboard/application.h"
 #include "starboard/shared/starboard/media/mime_supportability_cache.h"
+#include "starboard/shared/uwp/xb1_get_type.h"
 #include "starboard/shared/win32/video_decoder.h"
 #include "starboard/thread.h"
-#include "starboard/time.h"
 #include "starboard/xb1/shared/internal_shims.h"
 #if defined(INTERNAL_BUILD)
 #include "internal/starboard/xb1/dav1d_video_decoder.h"
@@ -46,7 +46,7 @@ using ::starboard::xb1::shared::GpuVideoDecoderBase;
 using ::starboard::xb1::shared::VpxVideoDecoder;
 #endif  // defined(INTERNAL_BUILD)
 
-const SbTime kReleaseTimeout = kSbTimeSecond;
+const int64_t kReleaseTimeoutUsec = 1'000'000;
 
 // kFrameBuffersPoolMemorySize is the size of gpu memory heap for common use
 // by vpx & av1 sw decoders.
@@ -68,17 +68,24 @@ const SbTime kReleaseTimeout = kSbTimeSecond;
 //
 // To make playback more smooth it is better to increase the output queue size
 // up to 30-50 frames, but it should not exceed memory budgetd.
-// So, the value of 440 Mb looks as compromise.
-const uint64_t kFrameBuffersPoolMemorySize = 440 * 1024 * 1024;
+// Compromise value was found out experimentally.
+// In XBOX ONE S/Base 400 Mb leaves enough memory for stable working of the rest
+// system. Just in case to be more sure we reduce this value down to 380 Mb. In
+// Sereies devices (if to use gpu based decoders) the max available frame size
+// size is 4K instead of 2K. On the other hand the memory budget is greater than
+// for Base/S. So we can use more memory for output queue.
+const uint64_t kFrameBuffersPoolMemorySizeForXB1 = 380 * 1024 * 1024;
+// +8 extra frames 4K HDR DXGI_FORMAT_R10G10B10A2_UNORM
+const uint64_t kFrameBuffersPoolMemorySizeForXBSeries =
+    kFrameBuffersPoolMemorySizeForXB1 + 8 * 16588800;
 
 bool IsExtendedResourceModeRequired() {
   if (!::starboard::xb1::shared::CanAcquire()) {
     return false;
   }
-  bool is_erm_required =
-      !shared::win32::VideoDecoder::IsHardwareVp9DecoderSupported();
-  SB_LOG(INFO) << "Extended resources mode"
-               << (is_erm_required ? " is required." : " isn't required.");
+  // erm is required for all xbox types except kXboxOneX;
+  bool is_erm_required = ::starboard::shared::uwp::GetXboxType() !=
+                         ::starboard::shared::uwp::kXboxOneX;
   return is_erm_required;
 }
 
@@ -115,9 +122,9 @@ void ExtendedResourcesManager::Run() {
 
   bool retrying_acquire = false;
   // Delay before retry acquiring to avoid pinning a core.
-  constexpr SbTime kRetryDelay = kSbTimeSecond / 10;
+  constexpr int64_t kRetryDelayUsec = 1'000'000 / 10;
   for (;;) {
-    switch (retrying_acquire ? event_queue_.GetTimed(kRetryDelay)
+    switch (retrying_acquire ? event_queue_.GetTimed(kRetryDelayUsec)
                              : event_queue_.Get()) {
       case kTimeout:
         SB_DCHECK(retrying_acquire);
@@ -170,6 +177,10 @@ void ExtendedResourcesManager::Quit() {
   SB_DCHECK(!thread_checker_.CalledOnValidThread());
   event_queue_.Put(kQuit);
   pending_extended_resources_release_.store(true);
+}
+
+void ExtendedResourcesManager::ReleaseBuffersHeap() {
+  d3d12FrameBuffersHeap_.Reset();
 }
 
 bool ExtendedResourcesManager::GetD3D12Objects(
@@ -261,8 +272,13 @@ bool ExtendedResourcesManager::GetD3D12ObjectsInternal() {
     SB_DCHECK(d3d12queue_);
   }
   if (!d3d12FrameBuffersHeap_) {
+    const bool isSeries = ::starboard::shared::uwp::GetXboxType() ==
+                              ::starboard::shared::uwp::kXboxSeriesS ||
+                          ::starboard::shared::uwp::GetXboxType() ==
+                              ::starboard::shared::uwp::kXboxSeriesX;
     D3D12_HEAP_DESC heap_desc;
-    heap_desc.SizeInBytes = kFrameBuffersPoolMemorySize;
+    heap_desc.SizeInBytes = isSeries ? kFrameBuffersPoolMemorySizeForXBSeries
+                                     : kFrameBuffersPoolMemorySizeForXB1;
     heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
     heap_desc.Properties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
     heap_desc.Properties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
@@ -324,7 +340,7 @@ bool ExtendedResourcesManager::AcquireExtendedResourcesInternal() {
           }
           semaphore.Put();
         });
-    if (semaphore.TakeWait(10 * kSbTimeSecond)) {
+    if (semaphore.TakeWait(10'000'000)) {
       acquisition_condition_.Signal();
       // If extended resource acquisition was not successful after the wait
       // time, signal a nonrecoverable failure, unless a release of
@@ -539,7 +555,7 @@ void ExtendedResourcesManager::ReleaseExtendedResourcesInternal() {
         pending_extended_resources_release_.store(false);
         semaphore.Put();
       });
-  if (!semaphore.TakeWait(kReleaseTimeout)) {
+  if (!semaphore.TakeWait(kReleaseTimeoutUsec)) {
     acquisition_condition_.Signal();
     // If extended resources are still acquired or the release is still pending
     // after the wait time, signal a nonrecoverable failure.

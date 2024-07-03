@@ -1,6 +1,5 @@
 # Evergreen Lite Partner Doc
 
-
 ## What is Cobalt Evergreen Lite?
 
 Evergreen Lite is a Cobalt configuration similar to Evergreen Full. Evergreen
@@ -98,7 +97,6 @@ Cobalt Evergreen currently supports the following
 
 Target Architectures:
 
-*   `x86_32`
 *   `x86_64`
 *   `armv7 32`
 *   `armv8 64`
@@ -143,7 +141,7 @@ directory specified by `kSbSystemPathContentDirectory` under the
 │           │   ├── licenses
 │           │   ├── ssl
 │           ├── lib
-│           │   └── libcobalt.so
+│           │   └── libcobalt.lz4
 │           └── manifest.json
 └── loader_app <--(Cobalt loader binary)
 └── crashpad_handler <--(Cobalt crash handler binary)

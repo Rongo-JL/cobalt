@@ -15,32 +15,34 @@
 #ifndef STARBOARD_ANDROID_SHARED_MEDIA_CODEC_BRIDGE_H_
 #define STARBOARD_ANDROID_SHARED_MEDIA_CODEC_BRIDGE_H_
 
+#include <memory>
 #include <string>
 
 #include "starboard/android/shared/jni_env_ext.h"
 #include "starboard/android/shared/jni_utils.h"
 #include "starboard/android/shared/media_common.h"
 #include "starboard/common/optional.h"
-#include "starboard/common/scoped_ptr.h"
 #include "starboard/shared/starboard/media/media_util.h"
 
 namespace starboard {
 namespace android {
 namespace shared {
 
-// These must be in sync with MediaCodecWrapper.MEDIA_CODEC_XXX constants in
-// MediaCodecBridge.java.
-const jint MEDIA_CODEC_OK = 0;
-const jint MEDIA_CODEC_DEQUEUE_INPUT_AGAIN_LATER = 1;
-const jint MEDIA_CODEC_DEQUEUE_OUTPUT_AGAIN_LATER = 2;
-const jint MEDIA_CODEC_OUTPUT_BUFFERS_CHANGED = 3;
-const jint MEDIA_CODEC_OUTPUT_FORMAT_CHANGED = 4;
-const jint MEDIA_CODEC_INPUT_END_OF_STREAM = 5;
-const jint MEDIA_CODEC_OUTPUT_END_OF_STREAM = 6;
-const jint MEDIA_CODEC_NO_KEY = 7;
-const jint MEDIA_CODEC_INSUFFICIENT_OUTPUT_PROTECTION = 8;
-const jint MEDIA_CODEC_ABORT = 9;
-const jint MEDIA_CODEC_ERROR = 10;
+// GENERATED_JAVA_ENUM_PACKAGE: dev.cobalt.media
+// GENERATED_JAVA_PREFIX_TO_STRIP: MEDIA_CODEC_
+enum MediaCodecStatus {
+  MEDIA_CODEC_OK,
+  MEDIA_CODEC_DEQUEUE_INPUT_AGAIN_LATER,
+  MEDIA_CODEC_DEQUEUE_OUTPUT_AGAIN_LATER,
+  MEDIA_CODEC_OUTPUT_BUFFERS_CHANGED,
+  MEDIA_CODEC_OUTPUT_FORMAT_CHANGED,
+  MEDIA_CODEC_INPUT_END_OF_STREAM,
+  MEDIA_CODEC_OUTPUT_END_OF_STREAM,
+  MEDIA_CODEC_NO_KEY,
+  MEDIA_CODEC_INSUFFICIENT_OUTPUT_PROTECTION,
+  MEDIA_CODEC_ABORT,
+  MEDIA_CODEC_ERROR
+};
 
 const jint BUFFER_FLAG_CODEC_CONFIG = 2;
 const jint BUFFER_FLAG_END_OF_STREAM = 4;
@@ -138,13 +140,13 @@ class MediaCodecBridge {
                                                    int size) = 0;
     virtual void OnMediaCodecOutputFormatChanged() = 0;
     // This is only called on video decoder when tunnel mode is enabled.
-    virtual void OnMediaCodecFrameRendered(SbTime frame_timestamp) = 0;
+    virtual void OnMediaCodecFrameRendered(int64_t frame_timestamp) = 0;
 
    protected:
     ~Handler() {}
   };
 
-  static scoped_ptr<MediaCodecBridge> CreateAudioMediaCodecBridge(
+  static std::unique_ptr<MediaCodecBridge> CreateAudioMediaCodecBridge(
       const AudioStreamInfo& audio_stream_info,
       Handler* handler,
       jobject j_media_crypto);
@@ -155,7 +157,7 @@ class MediaCodecBridge {
   // resolutions the platform can decode.
   // Both of them have to be set at the same time (i.e. we cannot set one of
   // them without the other), which will be checked in the function.
-  static scoped_ptr<MediaCodecBridge> CreateVideoMediaCodecBridge(
+  static std::unique_ptr<MediaCodecBridge> CreateVideoMediaCodecBridge(
       SbMediaVideoCodec video_codec,
       // `width_hint` and `height_hint` are used to create the Android video
       // format, which don't have to be directly related to the resolution of
@@ -173,6 +175,7 @@ class MediaCodecBridge {
       bool require_software_codec,
       int tunnel_mode_audio_session_id,
       bool force_big_endian_hdr_metadata,
+      int max_video_input_size,
       std::string* error_message);
 
   ~MediaCodecBridge();
@@ -197,6 +200,7 @@ class MediaCodecBridge {
   void ReleaseOutputBufferAtTimestamp(jint index, jlong render_timestamp_ns);
 
   void SetPlaybackRate(double playback_rate);
+  bool Start();
   jint Flush();
   FrameSize GetOutputSize();
   AudioOutputFormatResult GetAudioOutputFormat();
@@ -211,7 +215,7 @@ class MediaCodecBridge {
                                          int64_t presentation_time_us,
                                          int size);
   void OnMediaCodecOutputFormatChanged();
-  void OnMediaCodecFrameRendered(SbTime frame_timestamp);
+  void OnMediaCodecFrameRendered(int64_t frame_timestamp);
 
  private:
   // |MediaCodecBridge|s must only be created through its factory methods.

@@ -21,6 +21,10 @@ config("compiler_flags") {
     # Cleanup unused sections
     "-Wl,-gc-sections",
   ]
+  libs = [
+    "EGL",
+    "GLESv2",
+  ]
 
   # from common_compiler_flags
   cflags += [
@@ -73,11 +77,7 @@ config("compiler_flags") {
 
   ldflags += [ "-Wl,-rpath=/usr/lib/gcc/x86_64-linux-gnu/6" ]
 
-  cflags_c += [
-    # Limit to C99. This allows Linux to be a canary build for any
-    # C11 features that are not supported on some platforms' compilers.
-    "-std=c99",
-  ]
+  cflags_c += [ "-std=c11" ]
 
   cflags_cc += [
     "-std=gnu++14",
@@ -105,13 +105,26 @@ config("compiler_flags") {
 config("platform_configuration") {
   if (current_toolchain == default_toolchain &&
       build_with_separate_cobalt_toolchain) {
-    configs = [ "//starboard/evergreen/x64/platform_configuration" ]
+    configs = [ "//starboard/build/config/modular/x64" ]
   } else {
     configs = [
       "//starboard/linux/shared/platform_configuration",
       "//starboard/linux/x64x11/shared/platform_configuration:libraries",
       "//starboard/build/config/sabi",
       ":compiler_flags",
+      ":egl_wrapper",
     ]
+
+    # Workaround forcing a link to static library
+    # Resolves __wrap_eglSwapBuffers linking issues
+    libs = [ "starboard_egl_wrapped_functions" ]
   }
+}
+
+config("egl_wrapper") {
+  ldflags = [
+    # Workaround forcing a link to static library
+    # Resolves __wrap_eglSwapBuffers linking issues
+    "-Lstarboard/obj/starboard/linux/x64x11/shared",
+  ]
 }

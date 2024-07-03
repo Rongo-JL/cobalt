@@ -100,7 +100,7 @@ class AudioResamplerTest
       int audio_size = kSamplesPerInput * channels_ * sample_size;
       scoped_refptr<DecodedAudio> input = new DecodedAudio(
           channels_, source_sample_type_, source_storage_type_,
-          kSbTimeSecond * total_frames / source_sample_rate_, audio_size);
+          1'000'000LL * total_frames / source_sample_rate_, audio_size);
       total_frames += kSamplesPerInput;
       inputs_.push_back(input);
     }
@@ -118,7 +118,7 @@ class AudioResamplerTest
 };
 
 TEST_P(AudioResamplerTest, SunnyDay) {
-  scoped_ptr<AudioResampler> resampler = AudioResampler::Create(
+  std::unique_ptr<AudioResampler> resampler = AudioResampler::Create(
       source_sample_type_, source_storage_type_, source_sample_rate_,
       destination_sample_type_, destination_storage_type_,
       destination_sample_rate_, channels_);

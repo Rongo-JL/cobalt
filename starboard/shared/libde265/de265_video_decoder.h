@@ -17,6 +17,7 @@
 
 #include <libde265/de265.h>
 
+#include <memory>
 #include <queue>
 #include <string>
 
@@ -47,7 +48,7 @@ class VideoDecoder : public starboard::player::filter::VideoDecoder,
   void Initialize(const DecoderStatusCB& decoder_status_cb,
                   const ErrorCB& error_cb) override;
   size_t GetPrerollFrameCount() const override { return 8; }
-  SbTime GetPrerollTimeout() const override { return kSbTimeMax; }
+  int64_t GetPrerollTimeout() const override { return kSbInt64Max; }
   size_t GetMaxNumberOfCachedFrames() const override { return 12; }
 
   void WriteInputBuffers(const InputBuffers& input_buffers) override;
@@ -84,7 +85,7 @@ class VideoDecoder : public starboard::player::filter::VideoDecoder,
   bool error_occurred_ = false;
 
   // Working thread to avoid lengthy decoding work block the player thread.
-  scoped_ptr<starboard::player::JobThread> decoder_thread_;
+  std::unique_ptr<starboard::player::JobThread> decoder_thread_;
 
   // Decode-to-texture related state.
   SbPlayerOutputMode output_mode_;

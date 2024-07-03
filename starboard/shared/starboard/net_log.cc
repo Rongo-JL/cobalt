@@ -14,22 +14,27 @@
 
 #include "starboard/shared/starboard/net_log.h"
 
+#include <pthread.h>
+#include <unistd.h>
 #include <windows.h>
 
 #include <algorithm>
 #include <deque>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
+#include <utility>
 
 #include "starboard/common/atomic.h"
 #include "starboard/common/log.h"
 #include "starboard/common/mutex.h"
+#include "starboard/common/once.h"
 #include "starboard/common/semaphore.h"
 #include "starboard/common/socket.h"
 #include "starboard/common/string.h"
 #include "starboard/common/thread.h"
-#include "starboard/once.h"
+#include "starboard/common/time.h"
 #include "starboard/socket_waiter.h"
 
 #ifndef NET_LOG_PORT
@@ -66,10 +71,10 @@ using RunFunction = std::function<void(Semaphore*)>;
 
 class FunctionThread : public Thread {
  public:
-  static scoped_ptr<Thread> Create(const std::string& thread_name,
-                                   RunFunction run_function) {
-    scoped_ptr<Thread> out(new FunctionThread(thread_name, run_function));
-    return out.Pass();
+  static std::unique_ptr<Thread> Create(const std::string& thread_name,
+                                        RunFunction run_function) {
+    std::unique_ptr<Thread> out(new FunctionThread(thread_name, run_function));
+    return out;
   }
 
   FunctionThread(const std::string& name, RunFunction run_function)
@@ -103,8 +108,8 @@ std::string ToString(SbSocketError error) {
   return ss.str();
 }
 
-scoped_ptr<Socket> CreateListenSocket() {
-  scoped_ptr<Socket> socket(
+std::unique_ptr<Socket> CreateListenSocket() {
+  std::unique_ptr<Socket> socket(
       new Socket(NET_LOG_IP_VERSION, kSbSocketProtocolTcp));
   socket->SetReuseAddress(true);
   SbSocketAddress sock_addr;
@@ -126,7 +131,7 @@ scoped_ptr<Socket> CreateListenSocket() {
   if (sock_err != kSbSocketOk) {
     SbLogRawFormatF(kErrFmt, sock_err);
   }
-  return socket.Pass();
+  return socket;
 }
 
 class BufferedSocketWriter {
@@ -254,7 +259,7 @@ class BufferedSocketWriter {
 // callback will be invoked.
 class SocketListener {
  public:
-  typedef std::function<void(scoped_ptr<Socket>)> Callback;
+  typedef std::function<void(std::unique_ptr<Socket>)> Callback;
 
   SocketListener(Socket* listen_socket, Callback cb)
       : listen_socket_(listen_socket), callback_(cb) {
@@ -267,11 +272,11 @@ class SocketListener {
 
  private:
   void Run(Semaphore* joined_sema) {
-    while (!joined_sema->TakeWait(100 * kSbTimeMillisecond)) {
-      scoped_ptr<Socket> client_connection(listen_socket_->Accept());
+    while (!joined_sema->TakeWait(100'000)) {
+      std::unique_ptr<Socket> client_connection(listen_socket_->Accept());
 
       if (client_connection) {
-        callback_(client_connection.Pass());
+        callback_(std::move(client_connection));
         break;
       }
     }
@@ -279,7 +284,7 @@ class SocketListener {
 
   Socket* listen_socket_;
   Callback callback_;
-  scoped_ptr<Thread> thread_;
+  std::unique_ptr<Thread> thread_;
 };
 
 class NetLogServer {
@@ -310,17 +315,17 @@ class NetLogServer {
     socket_listener_.reset(new SocketListener(listen_socket_.get(), cb));
   }
 
-  void OnClientConnect(scoped_ptr<Socket> client_socket) {
+  void OnClientConnect(std::unique_ptr<Socket> client_socket) {
     ScopedLock lock(socket_mutex_);
-    client_socket_ = client_socket.Pass();
+    client_socket_ = std::move(client_socket);
     client_socket_->SetSendBufferSize(NET_LOG_SOCKET_BUFFER_SIZE);
-    client_socket_->SetTcpKeepAlive(true, kSbTimeSecond);
+    client_socket_->SetTcpKeepAlive(true, 1'000'000);
   }
 
   // Has a client ever connected?
   bool HasClientConnected() {
     ScopedLock lock(socket_mutex_);
-    return client_socket_;
+    return client_socket_.get() != nullptr;
   }
 
   void OnLog(const char* msg) {
@@ -371,12 +376,12 @@ class NetLogServer {
     }
   }
 
-  scoped_ptr<Socket> listen_socket_;
-  scoped_ptr<Socket> client_socket_;
+  std::unique_ptr<Socket> listen_socket_;
+  std::unique_ptr<Socket> client_socket_;
   Mutex socket_mutex_;
 
-  scoped_ptr<SocketListener> socket_listener_;
-  scoped_ptr<Thread> writer_thread_;
+  std::unique_ptr<SocketListener> socket_listener_;
+  std::unique_ptr<Thread> writer_thread_;
   Semaphore writer_thread_sema_;
   atomic_bool is_joined_;
 
@@ -385,21 +390,21 @@ class NetLogServer {
 
 class ThreadLocalBoolean {
  public:
-  ThreadLocalBoolean() : slot_(SbThreadCreateLocalKey(NULL)) {}
-  ~ThreadLocalBoolean() { SbThreadDestroyLocalKey(slot_); }
+  ThreadLocalBoolean() { pthread_key_create(&slot_, NULL); }
+  ~ThreadLocalBoolean() { pthread_key_delete(slot_); }
 
   void Set(bool val) {
     void* ptr = val ? reinterpret_cast<void*>(0x1) : nullptr;
-    SbThreadSetLocalValue(slot_, ptr);
+    pthread_setspecific(slot_, ptr);
   }
 
   bool Get() const {
-    void* ptr = SbThreadGetLocalValue(slot_);
+    void* ptr = pthread_getspecific(slot_);
     return ptr != nullptr;
   }
 
  private:
-  SbThreadLocalKey slot_;
+  pthread_key_t slot_;
 
   ThreadLocalBoolean(const ThreadLocalBoolean&) = delete;
   void operator=(const ThreadLocalBoolean&) = delete;
@@ -430,21 +435,21 @@ class ScopeGuard {
 
 const char kNetLogCommandSwitchWait[] = "net_log_wait_for_connection";
 
-void NetLogWaitForClientConnected(SbTime timeout) {
+void NetLogWaitForClientConnected(int64_t timeout) {
 #if !SB_LOGGING_IS_OFFICIAL_BUILD
   ScopeGuard guard;
   if (guard.IsEnabled()) {
-    SbTimeMonotonic expire_time = (timeout >= 0) && (timeout < kSbTimeMax)
-                                      ? SbTimeGetMonotonicNow() + timeout
-                                      : kSbTimeMax;
+    int64_t expire_time = (timeout >= 0) && (timeout < kSbInt64Max)
+                              ? CurrentMonotonicTime() + timeout
+                              : kSbInt64Max;
     while (true) {
       if (NetLogServer::Instance()->HasClientConnected()) {
         break;
       }
-      if (SbTimeGetMonotonicNow() > expire_time) {
+      if (CurrentMonotonicTime() > expire_time) {
         break;
       }
-      SbThreadSleep(kSbTimeMillisecond);
+      usleep(1000);
     }
   }
 #endif

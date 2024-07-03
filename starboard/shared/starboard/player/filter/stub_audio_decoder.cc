@@ -46,7 +46,7 @@ int CalculateFramesPerInputBuffer(int sample_rate,
   SB_DCHECK(first);
   SB_DCHECK(second);
 
-  SbTime duration = second->timestamp() - first->timestamp();
+  int64_t duration = second->timestamp() - first->timestamp();
   if (duration <= 0) {
     SB_LOG(ERROR) << "Duration (" << duration << ") for InputBuffer@ "
                   << first->timestamp() << " is invalid.";
@@ -57,7 +57,7 @@ int CalculateFramesPerInputBuffer(int sample_rate,
 }
 
 scoped_refptr<DecodedAudio> CreateDecodedAudio(
-    SbTime timestamp,
+    int64_t timestamp,
     SbMediaAudioSampleType sample_type,
     int number_of_channels,
     int frames) {
@@ -154,7 +154,6 @@ void StubAudioDecoder::Reset() {
 
 void StubAudioDecoder::DecodeBuffers(const InputBuffers& input_buffers,
                                      const ConsumedCB& consumed_cb) {
-  SB_DCHECK(decoder_thread_->job_queue()->BelongsToCurrentThread());
   for (const auto& input_buffer : input_buffers) {
     DecodeOneBuffer(input_buffer);
   }
@@ -163,7 +162,6 @@ void StubAudioDecoder::DecodeBuffers(const InputBuffers& input_buffers,
 
 void StubAudioDecoder::DecodeOneBuffer(
     const scoped_refptr<InputBuffer>& input_buffer) {
-  SB_DCHECK(decoder_thread_->job_queue()->BelongsToCurrentThread());
   const int kMaxInputBeforeMultipleDecodedAudios = 4;
 
   if (last_input_buffer_) {
@@ -216,7 +214,7 @@ void StubAudioDecoder::DecodeOneBuffer(
 
         auto offset_in_frames =
             offset_in_bytes / (sample_size * number_of_channels_);
-        SbTime timestamp =
+        int64_t timestamp =
             decoded_audio->timestamp() +
             AudioDurationToFrames(offset_in_frames, samples_per_second_);
 
@@ -240,8 +238,6 @@ void StubAudioDecoder::DecodeOneBuffer(
 }
 
 void StubAudioDecoder::DecodeEndOfStream() {
-  SB_DCHECK(decoder_thread_->job_queue()->BelongsToCurrentThread());
-
   if (last_input_buffer_) {
     if (!frames_per_input_) {
       if (codec_ == kSbMediaAudioCodecOpus) {

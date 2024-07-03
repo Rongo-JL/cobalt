@@ -19,9 +19,10 @@
 #ifndef STARBOARD_CONDITION_VARIABLE_H_
 #define STARBOARD_CONDITION_VARIABLE_H_
 
+#if SB_API_VERSION < 16
+
 #include "starboard/export.h"
 #include "starboard/mutex.h"
-#include "starboard/time.h"
 #include "starboard/types.h"
 
 #ifdef __cplusplus
@@ -47,8 +48,7 @@ typedef union SbConditionVariable {
 #define SB_CONDITION_VARIABLE_INITIALIZER \
   {}
 #else
-#define SB_CONDITION_VARIABLE_INITIALIZER \
-  { 0 }
+#define SB_CONDITION_VARIABLE_INITIALIZER {0}
 #endif
 
 // Enumeration of possible results from waiting on a condvar.
@@ -65,7 +65,7 @@ typedef enum SbConditionVariableResult {
 } SbConditionVariableResult;
 
 // Returns whether the given result is a success.
-static SB_C_INLINE bool SbConditionVariableIsSignaled(
+static inline bool SbConditionVariableIsSignaled(
     SbConditionVariableResult result) {
   return result == kSbConditionVariableSignaled;
 }
@@ -96,13 +96,13 @@ SbConditionVariableWait(SbConditionVariable* condition, SbMutex* mutex);
 // undefined if |mutex| is not held.
 //
 // |timeout_duration|: The maximum amount of time that function should wait
-// for |condition|. If the |timeout_duration| value is less than or equal to
-// zero, the function returns as quickly as possible with a
+// for |condition|, in microseconds. If the |timeout_duration| value is less
+// than or equal to zero, the function returns as quickly as possible with a
 // kSbConditionVariableTimedOut result.
 SB_EXPORT SbConditionVariableResult
 SbConditionVariableWaitTimed(SbConditionVariable* condition,
                              SbMutex* mutex,
-                             SbTime timeout_duration);
+                             int64_t timeout_duration);
 
 // Broadcasts to all current waiters of |condition| to stop waiting. This
 // function wakes all of the threads waiting on |condition| while
@@ -122,4 +122,5 @@ SB_EXPORT bool SbConditionVariableSignal(SbConditionVariable* condition);
 }  // extern "C"
 #endif
 
+#endif  // SB_API_VERSION < 16
 #endif  // STARBOARD_CONDITION_VARIABLE_H_

@@ -15,6 +15,8 @@
 #ifndef STARBOARD_ANDROID_SHARED_AUDIO_TRACK_AUDIO_SINK_TYPE_H_
 #define STARBOARD_ANDROID_SHARED_AUDIO_TRACK_AUDIO_SINK_TYPE_H_
 
+#include <pthread.h>
+
 #include <atomic>
 #include <functional>
 #include <map>
@@ -32,7 +34,6 @@
 #include "starboard/configuration.h"
 #include "starboard/shared/internal_only.h"
 #include "starboard/shared/starboard/audio_sink/audio_sink_internal.h"
-#include "starboard/thread.h"
 
 namespace starboard {
 namespace android {
@@ -67,7 +68,7 @@ class AudioTrackAudioSinkType : public SbAudioSinkPrivate::Type {
       SbAudioSinkUpdateSourceStatusFunc update_source_status_func,
       SbAudioSinkPrivate::ConsumeFramesFunc consume_frames_func,
       SbAudioSinkPrivate::ErrorFunc error_func,
-      SbTime start_time,
+      int64_t start_time,
       int tunnel_mode_audio_session_id,
       bool is_web_audio,
       void* context);
@@ -77,6 +78,8 @@ class AudioTrackAudioSinkType : public SbAudioSinkPrivate::Type {
   }
 
   void Destroy(SbAudioSink audio_sink) override {
+    // TODO(b/330793785): Use audio_sink.flush() instead of re-creating a new
+    // audio_sink.
     if (audio_sink != kSbAudioSinkInvalid && !IsValid(audio_sink)) {
       SB_LOG(WARNING) << "audio_sink is invalid.";
       return;
@@ -111,7 +114,7 @@ class AudioTrackAudioSink : public SbAudioSinkPrivate {
       SbAudioSinkUpdateSourceStatusFunc update_source_status_func,
       ConsumeFramesFunc consume_frames_func,
       SbAudioSinkPrivate::ErrorFunc error_func,
-      SbTime start_media_time,
+      int64_t start_media_time,
       int tunnel_mode_audio_session_id,
       bool is_web_audio,
       void* context);
@@ -129,7 +132,10 @@ class AudioTrackAudioSink : public SbAudioSinkPrivate {
   static void* ThreadEntryPoint(void* context);
   void AudioThreadFunc();
 
-  int WriteData(JniEnvExt* env, const void* buffer, int size, SbTime sync_time);
+  int WriteData(JniEnvExt* env,
+                const void* buffer,
+                int size,
+                int64_t sync_time);
 
   void ReportError(bool capability_changed, const std::string& error_message);
 
@@ -142,7 +148,7 @@ class AudioTrackAudioSink : public SbAudioSinkPrivate {
   const SbAudioSinkUpdateSourceStatusFunc update_source_status_func_;
   const ConsumeFramesFunc consume_frames_func_;
   const SbAudioSinkPrivate::ErrorFunc error_func_;
-  const SbTime start_time_;
+  const int64_t start_time_;  // microseconds
   const int tunnel_mode_audio_session_id_;
   const int max_frames_per_request_;
   void* const context_;
@@ -152,7 +158,7 @@ class AudioTrackAudioSink : public SbAudioSinkPrivate {
   int last_playback_head_position_ = 0;
 
   volatile bool quit_ = false;
-  SbThread audio_out_thread_ = kSbThreadInvalid;
+  pthread_t audio_out_thread_ = 0;
 
   Mutex mutex_;
   double playback_rate_ = 1.0;

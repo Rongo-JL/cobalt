@@ -23,10 +23,10 @@
 #include "starboard/memory.h"
 #include "starboard/shared/starboard/player/filter/cpu_video_frame.h"
 #include "starboard/shared/starboard/player/job_queue.h"
-#include "third_party/libdav1d/include/dav1d/common.h"
-#include "third_party/libdav1d/include/dav1d/data.h"
-#include "third_party/libdav1d/include/dav1d/headers.h"
-#include "third_party/libdav1d/include/dav1d/picture.h"
+#include "third_party/dav1d/libdav1d/include/dav1d/common.h"
+#include "third_party/dav1d/libdav1d/include/dav1d/data.h"
+#include "third_party/dav1d/libdav1d/include/dav1d/headers.h"
+#include "third_party/dav1d/libdav1d/include/dav1d/picture.h"
 
 namespace starboard {
 namespace shared {
@@ -118,18 +118,18 @@ void VideoDecoder::WriteEndOfStream() {
     return;
   }
 
-  decoder_thread_->job_queue()->Schedule(std::bind(
-      &VideoDecoder::DecodeEndOfStream, this, 100 * kSbTimeMillisecond));
+  decoder_thread_->job_queue()->Schedule(
+      std::bind(&VideoDecoder::DecodeEndOfStream, this, 100'000));
 }
 
 void VideoDecoder::Reset() {
   SB_DCHECK(BelongsToCurrentThread());
 
   if (decoder_thread_) {
-    decoder_thread_->job_queue()->Schedule(
+    // Wait to ensure all tasks are done before decoder_thread_ reset.
+    decoder_thread_->job_queue()->ScheduleAndWait(
         std::bind(&VideoDecoder::TeardownCodec, this));
 
-    // Join the thread to ensure that all callbacks in process are finished.
     decoder_thread_.reset();
   }
 
@@ -267,18 +267,18 @@ void VideoDecoder::DecodeOneBuffer(
   ReportError(FormatString("|dav1d_send_data| failed with code %d.", result));
 }
 
-void VideoDecoder::DecodeEndOfStream(SbTime timeout) {
+void VideoDecoder::DecodeEndOfStream(int64_t timeout) {
   SB_DCHECK(decoder_thread_->job_queue()->BelongsToCurrentThread());
 
   if (!TryToOutputFrames()) {
     return;
   }
   if (frames_being_decoded_ > 0 && timeout > 0) {
-    const SbTime delay_period = 5 * kSbTimeMillisecond;
+    const int64_t delay_period_usec = 5'000;  // 5ms
     decoder_thread_->job_queue()->Schedule(
         std::bind(&VideoDecoder::DecodeEndOfStream, this,
-                  timeout - delay_period),
-        delay_period);
+                  timeout - delay_period_usec),
+        delay_period_usec);
     return;
   } else {
     SB_LOG_IF(WARNING, frames_being_decoded_ > 0)

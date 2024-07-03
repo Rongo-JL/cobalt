@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#if SB_API_VERSION < 16
+
 #include "starboard/configuration.h"
 #include "starboard/mutex.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+#include "starboard/common/once.h"
 #include "starboard/condition_variable.h"
-#include "starboard/once.h"
 
 namespace starboard {
 namespace nplb {
@@ -64,3 +66,5 @@ TEST(SbMutexCreateTest, RainyDayNull) {
 }  // namespace
 }  // namespace nplb
 }  // namespace starboard
+
+#endif  // SB_API_VERSION < 16

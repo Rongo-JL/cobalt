@@ -22,7 +22,6 @@
 #include "base/logging.h"
 #include "cobalt/media_session/media_image.h"
 #include "cobalt/script/sequence.h"
-#include "starboard/common/time.h"
 
 namespace cobalt {
 namespace media_session {
@@ -70,7 +69,8 @@ void GuessMediaPositionState(MediaSessionState* session_state,
     position_state.set_position((*guess_player)->GetCurrentTime());
 
     *session_state = MediaSessionState(
-        session_state->metadata(), starboard::CurrentMonotonicTime(),
+        session_state->metadata(),
+        (base::TimeTicks::Now() - base::TimeTicks()).InMicroseconds(),
         position_state, session_state->actual_playback_state(),
         session_state->available_actions());
   }
@@ -197,7 +197,7 @@ void MediaSessionClient::PostDelayedTaskForMaybeFreezeCallback() {
 void MediaSessionClient::UpdatePlatformPlaybackState(
     CobaltExtensionMediaSessionPlaybackState state) {
   DCHECK(media_session_->task_runner_);
-  if (!media_session_->task_runner_->BelongsToCurrentThread()) {
+  if (!media_session_->task_runner_->RunsTasksInCurrentSequence()) {
     media_session_->task_runner_->PostTask(
         FROM_HERE, base::Bind(&MediaSessionClient::UpdatePlatformPlaybackState,
                               AsWeakPtr(), state));
@@ -211,6 +211,28 @@ void MediaSessionClient::UpdatePlatformPlaybackState(
 
   PostDelayedTaskForMaybeFreezeCallback();
 }
+
+void MediaSessionClient::InvokeAction(
+    const CobaltExtensionMediaSessionAction& action) {
+  std::unique_ptr<CobaltExtensionMediaSessionActionDetails> details(
+      new CobaltExtensionMediaSessionActionDetails());
+  CobaltExtensionMediaSessionActionDetailsInit(details.get(), action);
+  DCHECK(media_session_->task_runner_);
+  media_session_->task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&MediaSessionClient::InvokeActionInternal,
+                                AsWeakPtr(), std::move(details)));
+}
+
+void MediaSessionClient::InvokeAction(
+    const CobaltExtensionMediaSessionActionDetails& details) {
+  std::unique_ptr<CobaltExtensionMediaSessionActionDetails> details_ptr(
+      new CobaltExtensionMediaSessionActionDetails(details));
+  DCHECK(media_session_->task_runner_);
+  media_session_->task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&MediaSessionClient::InvokeActionInternal,
+                                AsWeakPtr(), std::move(details_ptr)));
+}
+
 
 void MediaSessionClient::RunMaybeFreezeCallback(int sequence_number) {
   if (sequence_number != sequence_number_) return;
@@ -233,14 +255,8 @@ void MediaSessionClient::InvokeActionInternal(
          details->action == kCobaltExtensionMediaSessionActionSeekto);
   DCHECK(!details->fast_seek ||
          details->action == kCobaltExtensionMediaSessionActionSeekto);
-
-  DCHECK(media_session_->task_runner_);
-  if (!media_session_->task_runner_->BelongsToCurrentThread()) {
-    media_session_->task_runner_->PostTask(
-        FROM_HERE, base::Bind(&MediaSessionClient::InvokeActionInternal,
-                              AsWeakPtr(), base::Passed(&details)));
-    return;
-  }
+  CHECK(media_session_->task_runner_);
+  CHECK(media_session_->task_runner_->RunsTasksInCurrentSequence());
 
   MediaSession::ActionMap::iterator it = media_session_->action_map_.find(
       ConvertMediaSessionAction(details->action));

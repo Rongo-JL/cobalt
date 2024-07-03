@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <memory>
 #include <string>
 
 #include "starboard/common/log.h"
@@ -28,7 +29,6 @@
 
 namespace {
 
-using starboard::scoped_ptr;
 using starboard::shared::starboard::player::InputBuffer;
 using starboard::shared::starboard::player::InputBuffers;
 using starboard::shared::starboard::player::JobThread;
@@ -42,11 +42,11 @@ const int kJobThreadStackSize = SB_MEDIA_PLAYER_THREAD_STACK_SIZE;
 const int kJobThreadStackSize = 0;
 #endif  // SB_MEDIA_PLAYER_THREAD_STACK_SIZE
 
-scoped_ptr<VideoDmpReader> s_video_dmp_reader;
-scoped_ptr<PlayerComponents> s_player_components;
+std::unique_ptr<VideoDmpReader> s_video_dmp_reader;
+starboard::unique_ptr_alias<PlayerComponents> s_player_components;
 int s_audio_sample_index;
-scoped_ptr<JobThread> s_job_thread;
-SbTime s_duration;
+std::unique_ptr<JobThread> s_job_thread;
+int64_t s_duration;
 
 static void DeallocateSampleFunc(SbPlayer player,
                                  void* context,
@@ -60,7 +60,7 @@ starboard::scoped_refptr<InputBuffer> GetAudioInputBuffer(size_t index) {
 
 void OnTimer() {
   if (!s_player_components->GetAudioRenderer()->CanAcceptMoreData()) {
-    s_job_thread->job_queue()->Schedule(std::bind(OnTimer), kSbTimeMillisecond);
+    s_job_thread->job_queue()->Schedule(std::bind(OnTimer), 1000);
     return;
   }
 
@@ -101,7 +101,7 @@ void EndedCB() {
 void Start(const char* filename) {
   SB_LOG(INFO) << "Loading " << filename;
   s_video_dmp_reader.reset(new VideoDmpReader(filename));
-  scoped_ptr<PlayerComponents::Factory> factory =
+  starboard::unique_ptr_alias<PlayerComponents::Factory> factory =
       PlayerComponents::Factory::Create();
   PlayerComponents::Factory::CreationParameters creation_parameters(
       s_video_dmp_reader->audio_stream_info());

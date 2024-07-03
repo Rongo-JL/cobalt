@@ -69,7 +69,7 @@ H5vccStorageSetQuotaResponse SetQuotaResponse(std::string error = "",
 }
 
 void ClearDirectory(const base::FilePath& file_path) {
-  base::DeleteFile(file_path, /*recursive=*/true);
+  base::DeletePathRecursively(file_path);
   base::CreateDirectory(file_path);
 }
 
@@ -184,7 +184,7 @@ H5vccStorageWriteTestResponse H5vccStorage::WriteTest(uint32 test_size,
         write_buf.data() + total_bytes_written,
         std::min(kBufferSize, test_size - total_bytes_written));
     if (bytes_written <= 0) {
-      base::DeleteFile(test_file_path, /*recursive=*/false);
+      base::DeleteFile(test_file_path);
       return WriteTestResponse("SbWrite -1 return value error");
     }
     total_bytes_written += bytes_written;
@@ -219,7 +219,7 @@ H5vccStorageVerifyTestResponse H5vccStorage::VerifyTest(
     auto bytes_read = test_file.ReadAtCurrentPosNoBestEffort(
         read_buffer.get(), std::min(kBufferSize, test_size - total_bytes_read));
     if (bytes_read <= 0) {
-      base::DeleteFile(test_file_path, /*recursive=*/false);
+      base::DeleteFile(test_file_path);
       return VerifyTestResponse("SbRead -1 return value error");
     }
 
@@ -236,12 +236,12 @@ H5vccStorageVerifyTestResponse H5vccStorage::VerifyTest(
   } while (total_bytes_read < test_size);
 
   if (total_bytes_read != test_size) {
-    base::DeleteFile(test_file_path, /*recursive=*/false);
+    base::DeleteFile(test_file_path);
     return VerifyTestResponse(
         "File test data size does not match kTestDataSize");
   }
 
-  base::DeleteFile(test_file_path, /*recursive=*/false);
+  base::DeleteFile(test_file_path);
   return VerifyTestResponse("", true, total_bytes_read);
 }
 
@@ -271,9 +271,7 @@ H5vccStorageSetQuotaResponse H5vccStorage::SetQuota(
                      quota.cache_api() + quota.service_worker_js();
 
   uint32_t max_quota_size = 24 * 1024 * 1024;
-#if SB_API_VERSION >= 14
   max_quota_size = kSbMaxSystemPathCacheDirectorySize;
-#endif
   // Assume the non-http-cache memory in kSbSystemPathCacheDirectory
   // is less than 1 mb and subtract this from the max_quota_size.
   max_quota_size -= (1 << 20);
@@ -359,9 +357,7 @@ H5vccStorageResourceTypeQuotaBytesDictionary H5vccStorage::GetQuota() {
       network::disk_cache::kServiceWorkerScript));
 
   uint32_t max_quota_size = 24 * 1024 * 1024;
-#if SB_API_VERSION >= 14
   max_quota_size = kSbMaxSystemPathCacheDirectorySize;
-#endif
   // Assume the non-http-cache memory in kSbSystemPathCacheDirectory
   // is less than 1 mb and subtract this from the max_quota_size.
   max_quota_size -= (1 << 20);
@@ -372,9 +368,9 @@ H5vccStorageResourceTypeQuotaBytesDictionary H5vccStorage::GetQuota() {
 }
 
 void H5vccStorage::EnableCache() {
-  persistent_settings_->SetPersistentSetting(
+  persistent_settings_->Set(
       network::disk_cache::kCacheEnabledPersistentSettingsKey,
-      std::make_unique<base::Value>(true));
+      base::Value(true));
 
   network::disk_cache::settings::SetCacheEnabled(true);
 
@@ -384,9 +380,9 @@ void H5vccStorage::EnableCache() {
 }
 
 void H5vccStorage::DisableCache() {
-  persistent_settings_->SetPersistentSetting(
+  persistent_settings_->Set(
       network::disk_cache::kCacheEnabledPersistentSettingsKey,
-      std::make_unique<base::Value>(false));
+      base::Value(false));
 
   network::disk_cache::settings::SetCacheEnabled(false);
 
@@ -430,7 +426,7 @@ void H5vccStorage::ClearServiceWorkerCache() {
   base::FilePath service_worker_file_path =
       base::FilePath(storage_dir.data())
           .Append(worker::WorkerConsts::kSettingsJson);
-  base::DeleteFile(service_worker_file_path, /*recursive=*/false);
+  base::DeleteFile(service_worker_file_path);
 }
 
 bool H5vccStorage::ValidatedCacheBackend() {

@@ -15,13 +15,16 @@
 // SendTo is largely tested with ReceiveFrom, so look there for more involved
 // tests.
 
+#include <pthread.h>
+#include <unistd.h>
+
 #include <utility>
 
 #include "starboard/common/socket.h"
+#include "starboard/common/time.h"
 #include "starboard/memory.h"
 #include "starboard/nplb/socket_helpers.h"
 #include "starboard/thread.h"
-#include "starboard/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace starboard {
@@ -39,6 +42,7 @@ class PairSbSocketSendToTest
 // Thread entry point to continuously write to a socket that is expected to
 // be closed on another thread.
 void* SendToServerSocketEntryPoint(void* trio_as_void_ptr) {
+  pthread_setname_np(pthread_self(), "SendToTest");
   ConnectedTrio* trio = static_cast<ConnectedTrio*>(trio_as_void_ptr);
   // The contents of this buffer are inconsequential.
   const size_t kBufSize = 1024;
@@ -48,13 +52,13 @@ void* SendToServerSocketEntryPoint(void* trio_as_void_ptr) {
   // Continue sending to the socket until it fails to send. It's expected that
   // SbSocketSendTo will fail when the server socket closes, but the application
   // should not terminate.
-  SbTime start = SbTimeGetMonotonicNow();
-  SbTime now = start;
-  SbTime kTimeout = kSbTimeSecond;
+  int64_t start = CurrentMonotonicTime();
+  int64_t now = start;
+  int64_t kTimeout = 1'000'000;  // 1 second
   int result = 0;
   while (result >= 0 && (now - start < kTimeout)) {
     result = SbSocketSendTo(trio->server_socket, send_buf, kBufSize, NULL);
-    now = SbTimeGetMonotonicNow();
+    now = CurrentMonotonicTime();
   }
 
   delete[] send_buf;
@@ -95,17 +99,16 @@ TEST_P(PairSbSocketSendToTest, RainyDaySendToClosedSocket) {
   EXPECT_TRUE(SbSocketDestroy(trio.listen_socket));
 
   // Start a thread to write to the client socket.
-  const bool kJoinable = true;
-  SbThread send_thread = SbThreadCreate(
-      0, kSbThreadNoPriority, kSbThreadNoAffinity, kJoinable, "SendToTest",
-      SendToServerSocketEntryPoint, static_cast<void*>(&trio));
+  pthread_t send_thread = 0;
+  pthread_create(&send_thread, nullptr, SendToServerSocketEntryPoint,
+                 static_cast<void*>(&trio));
 
   // Close the client, which should cause writes to the server socket to fail.
   EXPECT_TRUE(SbSocketDestroy(trio.client_socket));
 
   // Wait for the thread to exit and check the last socket error.
   void* thread_result;
-  EXPECT_TRUE(SbThreadJoin(send_thread, &thread_result));
+  EXPECT_EQ(pthread_join(send_thread, &thread_result), 0);
 
   EXPECT_SB_SOCKET_ERROR_IN(SbSocketGetLastError(trio.server_socket),
                             kSbSocketErrorConnectionReset,
@@ -123,7 +126,7 @@ TEST_P(PairSbSocketSendToTest, RainyDaySendToSocketUntilBlocking) {
   // 1GB limit for sending data.
   static const uint64_t kMaxTransferLimit = 1024 * 1024 * 1024;
 
-  scoped_ptr<ConnectedTrioWrapped> trio =
+  std::unique_ptr<ConnectedTrioWrapped> trio =
       CreateAndConnectWrapped(GetServerAddressType(), GetClientAddressType(),
                               GetPortNumberForTests(), kSocketTimeout);
   ASSERT_TRUE(trio);
@@ -155,7 +158,7 @@ TEST_P(PairSbSocketSendToTest, RainyDaySendToSocketUntilBlocking) {
 TEST_P(PairSbSocketSendToTest, RainyDaySendToSocketConnectionReset) {
   static const int kChunkSize = 1024;
 
-  scoped_ptr<ConnectedTrioWrapped> trio =
+  std::unique_ptr<ConnectedTrioWrapped> trio =
       CreateAndConnectWrapped(GetServerAddressType(), GetClientAddressType(),
                               GetPortNumberForTests(), kSocketTimeout);
   ASSERT_TRUE(trio);
@@ -169,7 +172,7 @@ TEST_P(PairSbSocketSendToTest, RainyDaySendToSocketConnectionReset) {
   int kNumRetries = 1000;
   for (int i = 0; i < kNumRetries; ++i) {
     char buff[kChunkSize] = {};
-    SbThreadSleep(kSbTimeMillisecond);
+    usleep(1000);
     int result = trio->client_socket->SendTo(buff, sizeof(buff), NULL);
 
     if (result < 0) {

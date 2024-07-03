@@ -26,8 +26,8 @@ namespace shared {
 
 namespace {
 
-const SbTimeMonotonic kBufferTooLateThreshold = -32 * kSbTimeMillisecond;
-const SbTimeMonotonic kBufferReadyThreshold = 50 * kSbTimeMillisecond;
+const int64_t kBufferTooLateThreshold = -32'000;  // -32ms
+const int64_t kBufferReadyThreshold = 50'000;     // 50ms
 
 jlong GetSystemNanoTime() {
   timespec now;
@@ -37,8 +37,9 @@ jlong GetSystemNanoTime() {
 
 }  // namespace
 
-VideoRenderAlgorithm::VideoRenderAlgorithm(VideoDecoder* video_decoder)
-    : video_decoder_(video_decoder) {
+VideoRenderAlgorithm::VideoRenderAlgorithm(VideoDecoder* video_decoder,
+                                           VideoFrameTracker* frame_tracker)
+    : video_decoder_(video_decoder), frame_tracker_(frame_tracker) {
   SB_DCHECK(video_decoder_);
   video_decoder_->SetPlaybackRate(playback_rate_);
 }
@@ -63,7 +64,7 @@ void VideoRenderAlgorithm::Render(
     bool is_audio_eos_played;
     bool is_underflow;
     double playback_rate;
-    SbTime playback_time = media_time_provider->GetCurrentMediaTime(
+    int64_t playback_time = media_time_provider->GetCurrentMediaTime(
         &is_audio_playing, &is_audio_eos_played, &is_underflow, &playback_rate);
     if (!is_audio_playing) {
       break;
@@ -90,18 +91,18 @@ void VideoRenderAlgorithm::Render(
       }
     }
 
-    jlong early_us = frames->front()->timestamp() - playback_time;
+    jlong early_us = (frames->front()->timestamp() - playback_time) /
+                     (playback_rate != 0 ? playback_rate : 1);
 
     auto system_time_ns = GetSystemNanoTime();
-    auto unadjusted_frame_release_time_ns =
-        system_time_ns + (early_us * kSbTimeNanosecondsPerMicrosecond);
+    auto unadjusted_frame_release_time_ns = system_time_ns + (early_us * 1000);
 
     auto adjusted_release_time_ns =
         video_frame_release_time_helper_.AdjustReleaseTime(
-            frames->front()->timestamp(), unadjusted_frame_release_time_ns);
+            frames->front()->timestamp(), unadjusted_frame_release_time_ns,
+            playback_rate);
 
-    early_us = (adjusted_release_time_ns - system_time_ns) /
-               kSbTimeNanosecondsPerMicrosecond;
+    early_us = (adjusted_release_time_ns - system_time_ns) / 1000;
 
     if (early_us < kBufferTooLateThreshold) {
       frames->pop_front();
@@ -114,6 +115,19 @@ void VideoRenderAlgorithm::Render(
       break;
     }
   }
+}
+
+void VideoRenderAlgorithm::Seek(int64_t seek_to_time) {
+  if (frame_tracker_) {
+    frame_tracker_->Seek(seek_to_time);
+  }
+}
+
+int VideoRenderAlgorithm::GetDroppedFrames() {
+  if (frame_tracker_) {
+    return frame_tracker_->UpdateAndGetDroppedFrames();
+  }
+  return dropped_frames_;
 }
 
 VideoRenderAlgorithm::VideoFrameReleaseTimeHelper::
@@ -137,12 +151,13 @@ VideoRenderAlgorithm::VideoFrameReleaseTimeHelper::
 
 jlong VideoRenderAlgorithm::VideoFrameReleaseTimeHelper::AdjustReleaseTime(
     jlong frame_presentation_time_us,
-    jlong unadjusted_release_time_ns) {
+    jlong unadjusted_release_time_ns,
+    double playback_rate) {
   SB_DCHECK(j_video_frame_release_time_helper_);
   auto* env = JniEnvExt::Get();
   return env->CallLongMethodOrAbort(
-      j_video_frame_release_time_helper_, "adjustReleaseTime", "(JJ)J",
-      frame_presentation_time_us, unadjusted_release_time_ns);
+      j_video_frame_release_time_helper_, "adjustReleaseTime", "(JJD)J",
+      frame_presentation_time_us, unadjusted_release_time_ns, playback_rate);
 }
 
 }  // namespace shared

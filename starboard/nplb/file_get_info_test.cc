@@ -16,10 +16,10 @@
 
 #include <string>
 
+#include "starboard/common/time.h"
 #include "starboard/file.h"
 #include "starboard/nplb/file_helpers.h"
 #include "starboard/system.h"
-#include "starboard/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace starboard {
@@ -39,14 +39,9 @@ TEST(SbFileGetInfoTest, WorksOnARegularFile) {
   for (int i = 0; i < kTrials; ++i) {
     // We can't assume filesystem timestamp precision, so go back a minute
     // for a better chance to contain the imprecision and rounding errors.
-    SbTime time = SbTimeGetNow() - kSbTimeMinute;
-#if !SB_HAS_QUIRK(FILESYSTEM_ZERO_FILEINFO_TIME)
-#if SB_HAS_QUIRK(FILESYSTEM_COARSE_ACCESS_TIME)
-    // On platforms with coarse access time, we assume 1 day precision and go
-    // back 2 days to avoid rounding issues.
-    SbTime coarse_time = SbTimeGetNow() - (2 * kSbTimeDay);
-#endif  // FILESYSTEM_COARSE_ACCESS_TIME
-#endif  // FILESYSTEM_ZERO_FILEINFO_TIME
+    const int64_t kOneMinuteInMicroseconds = 60'000'000;
+    int64_t time =
+        PosixTimeToWindowsTime(CurrentPosixTime()) - kOneMinuteInMicroseconds;
 
     const int kFileSize = 12;
     starboard::nplb::ScopedRandomFile random_file(kFileSize);
@@ -62,19 +57,9 @@ TEST(SbFileGetInfoTest, WorksOnARegularFile) {
       EXPECT_EQ(kFileSize, info.size);
       EXPECT_FALSE(info.is_directory);
       EXPECT_FALSE(info.is_symbolic_link);
-#if SB_HAS_QUIRK(FILESYSTEM_ZERO_FILEINFO_TIME)
-      EXPECT_LE(0, info.last_accessed);
-      EXPECT_LE(0, info.last_accessed);
-      EXPECT_LE(0, info.creation_time);
-#else
       EXPECT_LE(time, info.last_modified);
-#if SB_HAS_QUIRK(FILESYSTEM_COARSE_ACCESS_TIME)
-      EXPECT_LE(coarse_time, info.last_accessed);
-#else
       EXPECT_LE(time, info.last_accessed);
-#endif  // FILESYSTEM_COARSE_ACCESS_TIME
       EXPECT_LE(time, info.creation_time);
-#endif  // FILESYSTEM_ZERO_FILEINFO_TIME
     }
 
     bool result = SbFileClose(file);

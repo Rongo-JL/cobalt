@@ -17,9 +17,6 @@ import("//starboard/build/config/base_configuration.gni")
 # Stub does not use a filter-based player.
 sb_filter_based_player = false
 
-# No GL drivers available.
-gl_type = "none"
-
 sabi_path = "//starboard/sabi/x64/sysv/sabi-v$sb_api_version.json"
 
 install_target_path = "//starboard/build/install/install_target.gni"
@@ -29,7 +26,6 @@ pedantic_warnings_config_path =
 no_pedantic_warnings_config_path =
     "//starboard/stub/platform_configuration:no_pedantic_warnings"
 
-is_clang_16 = true
-assert(!is_host_win, "Stub build is not (yet) supported on windows host")
+assert(host_os != "win", "Stub build is not (yet) supported on windows host")
 
 v8_enable_webassembly = true

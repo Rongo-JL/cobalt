@@ -29,6 +29,11 @@ on:
         required: false
         type: boolean
         default: false
+      keep_artifacts:
+        description: 'Which artifacts to keep for releases'
+        required: false
+        type: string
+        default: ''
 
 # Global env vars.
 env:
@@ -47,7 +52,7 @@ env:
   STARBOARD_TOOLCHAINS_DIR: /root/starboard-toolchains
 
 concurrency:
-  group: '${{ github.workflow }}-${{ github.event_name }}-${{ inputs.platform }} @ ${{ github.event.label.name || github.event.pull_request.number || github.sha }}'
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ inputs.platform }} @ ${{ github.event.label.name || github.event.pull_request.number || github.sha }} @ ${{ github.event.label.name && github.event.pull_request.number || github.event.action }}
   cancel-in-progress: true
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
@@ -63,11 +68,13 @@ jobs:
       GITHUB_EVENT_NUMBER: ${{ github.event.number }}
     if: |
       github.event.action != 'labeled' ||
+      github.event.pull_request.merged == false &&
       (
         github.event.action == 'labeled' &&
         github.event.label.name == 'runtest' ||
         github.event.label.name == 'on_device'
       )
+    timeout-minutes: 10
     steps:
       - id: checkout
         uses: kaidokert/checkout@v3.5.999
@@ -116,11 +123,11 @@ jobs:
         run: |
           on_host_test_shards=$(cat ${GITHUB_WORKSPACE}/.github/config/${{ inputs.platform }}.json | jq -c '.on_host_test_shards')
           echo "on_host_test_shards=${on_host_test_shards}" >> $GITHUB_ENV
-      - id: set-on-host-test-bootloader
+      - id: set-on-host-test-evergreen-loader
         shell: bash
         run: |
-          bootloader=$(cat ${GITHUB_WORKSPACE}/.github/config/${{ inputs.platform }}.json | jq -rc '.bootloader')
-          echo "bootloader=${bootloader}" >> $GITHUB_ENV
+          evergreen_loader=$(cat ${GITHUB_WORKSPACE}/.github/config/${{ inputs.platform }}.json | jq -rc '.evergreen_loader')
+          echo "evergreen_loader=${evergreen_loader}" >> $GITHUB_ENV
       - id: set-docker-service
         shell: bash
         run: |
@@ -133,7 +140,7 @@ jobs:
       on_device_test_attempts: ${{ env.on_device_test_attempts }}
       on_host_test: ${{ env.on_host_test }}
       on_host_test_shards: ${{ env.on_host_test_shards }}
-      bootloader: ${{ env.bootloader }}
+      evergreen_loader: ${{ env.evergreen_loader }}
       docker_service: ${{ env.docker_service }}
 
   # Builds, tags, and pushes Cobalt docker build images to ghr.
@@ -142,6 +149,7 @@ jobs:
     runs-on: [self-hosted, linux-runner]
     permissions:
       packages: write
+    timeout-minutes: 30
     steps:
       - name: Checkout files
         uses: kaidokert/checkout@v3.5.999
@@ -167,7 +175,7 @@ jobs:
         run: |
           set -u
           echo $DOCKER_TAG
-          echo "docker_tag=$DOCKER_TAG"  >> $GITHUB_ENV
+          echo "docker_tag=$DOCKER_TAG" | head -n 1  >> $GITHUB_ENV
     outputs:
       docker_tag: ${{env.docker_tag}}
 
@@ -178,6 +186,7 @@ jobs:
     permissions:
       packages: write
     runs-on: [self-hosted, linux-runner]
+    timeout-minutes: 30
     steps:
       - name: Checkout files
         uses: kaidokert/checkout@v3.5.999
@@ -225,6 +234,7 @@ jobs:
       # However, dind container ends up having / folder mounted on overlay
       # filesystem, whereas /__w which contains Cobalt source code is on tmpfs.
       TMPDIR: /__w/_temp
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: kaidokert/checkout@v3.5.999
@@ -233,42 +243,59 @@ jobs:
           # Use fetch depth of 0 to get full history for a valid build id.
           fetch-depth: 0
           persist-credentials: false
+      - name: Cache Gradle
+        uses: actions/cache@v3
+        if: startsWith( matrix.target_platform , 'android')
+        with:
+          key: gradle-cache-${{ hashFiles('starboard/android/apk/**/*gradle*') }}
+          path: |
+            /root/.gradle/caches
+            /root/.gradle/wrapper
       - name: GN
         uses: ./.github/actions/gn
       - name: Build Cobalt
         uses: ./.github/actions/build
+      - name: 'Upload Artifact'
+        uses: actions/upload-artifact@v4
+        if: inputs.keep_artifacts
+        with:
+          name: ${{ matrix.platform }}-${{ matrix.config }}
+          path: out/${{ matrix.platform }}_${{ matrix.config }}/${{ inputs.keep_artifacts }}
+          retention-days: 7
+          compression-level: 0 # We expect kept artifacts to be already compressed
+          if-no-files-found: error
       - name: Run API Leak Detector
         uses: ./.github/actions/api_leak_detector
         if: inputs.run_api_leak_detector
         with:
           relative_manifest_path: ${{ inputs.leak_manifest_filename }}
-      - name: Upload Nightly Artifacts
-        if: ${{ ( inputs.nightly == 'true' || github.event_name == 'schedule' ) && matrix.config != 'debug' }}
-        uses: ./.github/actions/upload_nightly_artifacts
       - name: Upload On Host Test Artifacts
         if: ${{ matrix.config == 'devel' && needs.initialize.outputs.on_host_test == 'true' }}
         uses: ./.github/actions/upload_test_artifacts
         with:
           type: onhost
           os: linux
-      # For some reason passing needs.initialize.outputs.bootloader as parameter to build
+      # For some reason passing needs.initialize.outputs.evergreen_loader as parameter to build
       # action didn't work, so instead we set an env var.
-      - name: Set bootloader config
-        if: ${{ needs.initialize.outputs.bootloader != 'null' }}
+      - name: Set Evergreen loader config
+        if: ${{ needs.initialize.outputs.evergreen_loader != 'null' }}
         shell: bash
         run: |
            set -u
-           COBALT_BOOTLOADER="${{needs.initialize.outputs.bootloader}}"
-           echo "COBALT_BOOTLOADER=${COBALT_BOOTLOADER}" >> $GITHUB_ENV
-      # Build bootloader for on-host tests if necessary.
-      - name: Bootloader GN
-        if: ${{ needs.initialize.outputs.bootloader != 'null' && matrix.config == 'devel' }}
+           COBALT_EVERGREEN_LOADER="${{needs.initialize.outputs.evergreen_loader}}"
+           echo "COBALT_EVERGREEN_LOADER=${COBALT_EVERGREEN_LOADER}" >> $GITHUB_ENV
+      # Build Evergreen loader for on-host tests if necessary.
+      - name: Evergreen loader GN
+        if: ${{ needs.initialize.outputs.evergreen_loader != 'null' && ( matrix.config == 'devel' || matrix.config == 'qa' ) }}
         uses: ./.github/actions/gn
-      - name: Build Bootloader
-        if: ${{ needs.initialize.outputs.bootloader != 'null' && matrix.config == 'devel' }}
+      - name: Build Evergreen loader
+        if: ${{ needs.initialize.outputs.evergreen_loader != 'null' && ( matrix.config == 'devel' || matrix.config == 'qa' ) }}
         uses: ./.github/actions/build
-      - name: Upload Bootloader On Host Test Artifacts
-        if: ${{ needs.initialize.outputs.bootloader != 'null' && matrix.config == 'devel' && needs.initialize.outputs.on_host_test == 'true'}}
+      - name: Upload Nightly Artifacts
+        if: ${{ ( inputs.nightly == 'true' || github.event_name == 'schedule' ) && matrix.config != 'debug' }}
+        uses: ./.github/actions/upload_nightly_artifacts
+      - name: Upload Evergreen loader On Host Test Artifacts
+        if: ${{ needs.initialize.outputs.evergreen_loader != 'null' && matrix.config == 'devel' && needs.initialize.outputs.on_host_test == 'true'}}
         uses: ./.github/actions/upload_test_artifacts
         with:
           type: onhost
@@ -300,7 +327,6 @@ jobs:
           ( github.event_name == 'push' && vars.RUN_ODT_TESTS_ON_POSTSUBMIT != 'False' ) )
     runs-on: [self-hosted, odt-runner]
     name: ${{ matrix.name }}_on_device_${{ matrix.shard }}
-    container: ${{ needs.docker-unittest-image.outputs.docker_unittest_tag }}
     permissions: {}
     strategy:
       fail-fast: false
@@ -310,7 +336,7 @@ jobs:
         shard: ${{ fromJson(needs.initialize.outputs.on_device_test).tests }}
         include: ${{ fromJson(needs.initialize.outputs.includes) }}
     env:
-      COBALT_BOOTLOADER: ${{ needs.initialize.outputs.bootloader }}
+      COBALT_EVERGREEN_LOADER: ${{ needs.initialize.outputs.evergreen_loader }}
       ON_DEVICE_TEST_ATTEMPTS: ${{ needs.initialize.outputs.on_device_test_attempts }}
       MODULAR_BUILD: ${{ inputs.modular && 1 || 0 }}
     steps:
@@ -343,8 +369,9 @@ jobs:
       # For some reason tests complaining about HOME set to /github/home
       # with permission denied error.
       HOME: /root
-      COBALT_BOOTLOADER: ${{needs.initialize.outputs.bootloader}}
+      COBALT_EVERGREEN_LOADER: ${{needs.initialize.outputs.evergreen_loader}}
       MODULAR_BUILD: ${{ inputs.modular && 1 || 0 }}
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: kaidokert/checkout@v3.5.999

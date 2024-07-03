@@ -61,22 +61,25 @@ class DebugConsole : public LifecycleObserver {
   // Filters a key event.
   // Returns true if the event should be passed on to other handlers,
   // false if it was consumed within this function.
-  bool FilterKeyEvent(base::Token type, const dom::KeyboardEventInit& event);
+  bool FilterKeyEvent(base_token::Token type,
+                      const dom::KeyboardEventInit& event);
 
   // Filters a pointer event.
   // Returns true if the event should be passed on to other handlers,
   // false if it was consumed within this function.
-  bool FilterPointerEvent(base::Token type, const dom::PointerEventInit& event);
+  bool FilterPointerEvent(base_token::Token type,
+                          const dom::PointerEventInit& event);
 
   // Filters a wheel event.
   // Returns true if the event should be passed on to other handlers,
   // false if it was consumed within this function.
-  bool FilterWheelEvent(base::Token type, const dom::WheelEventInit& event);
+  bool FilterWheelEvent(base_token::Token type,
+                        const dom::WheelEventInit& event);
 
   // Filters an on screen keyboard input event.
   // Returns true if the event should be passed on to other handlers,
   // false if it was consumed within this function.
-  bool FilterOnScreenKeyboardInputEvent(base::Token type,
+  bool FilterOnScreenKeyboardInputEvent(base_token::Token type,
                                         const dom::InputEventInit& event);
 
   const WebModule& web_module() const { return *web_module_; }
@@ -95,21 +98,21 @@ class DebugConsole : public LifecycleObserver {
   }
 
   // LifecycleObserver implementation.
-  void Blur(int64_t timestamp) override { web_module_->Blur(0); }
+  void Blur(int64_t timestamp) override { web_module_->Blur(timestamp); }
   void Conceal(render_tree::ResourceProvider* resource_provider,
                int64_t timestamp) override {
-    web_module_->Conceal(resource_provider, 0);
+    web_module_->Conceal(resource_provider, timestamp);
   }
-  void Freeze(int64_t timestamp) override { web_module_->Freeze(0); }
+  void Freeze(int64_t timestamp) override { web_module_->Freeze(timestamp); }
   void Unfreeze(render_tree::ResourceProvider* resource_provider,
                 int64_t timestamp) override {
-    web_module_->Unfreeze(resource_provider, 0);
+    web_module_->Unfreeze(resource_provider, timestamp);
   }
   void Reveal(render_tree::ResourceProvider* resource_provider,
               int64_t timestamp) override {
-    web_module_->Reveal(resource_provider, 0);
+    web_module_->Reveal(resource_provider, timestamp);
   }
-  void Focus(int64_t timestamp) override { web_module_->Focus(0); }
+  void Focus(int64_t timestamp) override { web_module_->Focus(timestamp); }
 
   void ReduceMemory() { web_module_->ReduceMemory(); }
 

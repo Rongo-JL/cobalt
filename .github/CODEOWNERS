@@ -10,11 +10,11 @@
 /components/metrics/ @joeltine
 /tools/metrics/ @joeltine
 
-# Temporary monitoring for merges to Chromium upstreams
-/base/ @andrewsavage1
-/build/ @andrewsavage1
-/crypto/ @andrewsavage1
-/net/ @andrewsavage1
-/third_party/abseil-cpp/ @andrewsavage1
-/third_party/modp_b64/ @andrewsavage1
-/url/ @andrewsavage1
+# Monitoring for merges to Chromium upstreams
+/base/ @youtube/cobalt-3p-repository-owners
+/build/ @youtube/cobalt-3p-repository-owners
+/crypto/ @youtube/cobalt-3p-repository-owners
+/net/ @youtube/cobalt-3p-repository-owners
+/third_party/abseil-cpp/ @youtube/cobalt-3p-repository-owners
+/third_party/modp_b64/ @youtube/cobalt-3p-repository-owners
+/url/ @youtube/cobalt-3p-repository-owners

@@ -15,6 +15,7 @@
 #ifndef STARBOARD_SHARED_STARBOARD_PLAYER_FILTER_CPU_VIDEO_FRAME_H_
 #define STARBOARD_SHARED_STARBOARD_PLAYER_FILTER_CPU_VIDEO_FRAME_H_
 
+#include <memory>
 #include <vector>
 
 #include "starboard/common/ref_counted.h"
@@ -55,7 +56,7 @@ class CpuVideoFrame : public VideoFrame {
     const uint8_t* data;
   };
 
-  explicit CpuVideoFrame(SbTime timestamp) : VideoFrame(timestamp) {}
+  explicit CpuVideoFrame(int64_t timestamp) : VideoFrame(timestamp) {}
 
   Format format() const { return format_; }
   int width() const { return width_; }
@@ -72,7 +73,7 @@ class CpuVideoFrame : public VideoFrame {
       int height,
       int source_y_pitch_in_bytes,
       int source_uv_pitch_in_bytes,
-      SbTime timestamp,
+      int64_t timestamp,  // microseconds
       const uint8_t* y,
       const uint8_t* u,
       const uint8_t* v);
@@ -84,7 +85,7 @@ class CpuVideoFrame : public VideoFrame {
 
   // The following two variables are valid when the frame contains pixel data.
   std::vector<Plane> planes_;
-  scoped_array<uint8_t> pixel_buffer_;
+  std::unique_ptr<uint8_t[]> pixel_buffer_;
 };
 
 }  // namespace filter

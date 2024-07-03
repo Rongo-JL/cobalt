@@ -18,6 +18,7 @@
 #include <jni.h>
 
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -51,7 +52,7 @@ class MediaDecoder
   typedef ::starboard::shared::starboard::player::filter::ErrorCB ErrorCB;
   typedef ::starboard::shared::starboard::player::InputBuffer InputBuffer;
   typedef ::starboard::shared::starboard::player::InputBuffers InputBuffers;
-  typedef std::function<void(SbTime)> FrameRenderedCB;
+  typedef std::function<void(int64_t)> FrameRenderedCB;
 
   // This class should be implemented by the users of MediaDecoder to receive
   // various notifications.  Note that all such functions are called on the
@@ -97,6 +98,7 @@ class MediaDecoder
                const FrameRenderedCB& frame_rendered_cb,
                int tunnel_mode_audio_session_id,
                bool force_big_endian_hdr_metadata,
+               int max_video_input_size,
                std::string* error_message);
   ~MediaDecoder();
 
@@ -111,6 +113,8 @@ class MediaDecoder
   }
 
   bool is_valid() const { return media_codec_bridge_ != NULL; }
+
+  bool Flush();
 
  private:
   struct Event {
@@ -168,7 +172,7 @@ class MediaDecoder
                                          int64_t presentation_time_us,
                                          int size) override;
   void OnMediaCodecOutputFormatChanged() override;
-  void OnMediaCodecFrameRendered(SbTime frame_timestamp) override;
+  void OnMediaCodecFrameRendered(int64_t frame_timestamp) override;
 
   ::starboard::shared::starboard::ThreadChecker thread_checker_;
 
@@ -202,8 +206,8 @@ class MediaDecoder
   bool first_call_on_handler_thread_ = true;
 
   // Working thread to avoid lengthy decoding work block the player thread.
-  SbThread decoder_thread_ = kSbThreadInvalid;
-  scoped_ptr<MediaCodecBridge> media_codec_bridge_;
+  pthread_t decoder_thread_ = 0;
+  std::unique_ptr<MediaCodecBridge> media_codec_bridge_;
 };
 
 }  // namespace shared

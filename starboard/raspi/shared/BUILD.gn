@@ -32,7 +32,6 @@ static_library("starboard_platform_sources") {
     "//starboard/linux/shared/netlink.h",
     "//starboard/linux/shared/routes.cc",
     "//starboard/linux/shared/routes.h",
-    "//starboard/linux/shared/system_get_connection_type.cc",
     "//starboard/linux/shared/system_get_path.cc",
     "//starboard/linux/shared/system_has_capability.cc",
     "//starboard/linux/shared/time_zone.cc",
@@ -282,8 +281,6 @@ static_library("starboard_platform_sources") {
     "//starboard/shared/starboard/memory.cc",
     "//starboard/shared/starboard/new.cc",
     "//starboard/shared/starboard/queue_application.cc",
-    "//starboard/shared/starboard/starboard_switches.cc",
-    "//starboard/shared/starboard/starboard_switches.h",
     "//starboard/shared/starboard/string_duplicate.cc",
     "//starboard/shared/starboard/system_get_random_uint64.cc",
     "//starboard/shared/starboard/system_request_blur.cc",
@@ -364,14 +361,19 @@ static_library("starboard_platform_sources") {
   }
 
   if (sb_is_evergreen_compatible) {
+    sources += [
+      "//starboard/shared/starboard/loader_app_metrics.cc",
+      "//starboard/shared/starboard/loader_app_metrics.h",
+    ]
+
     public_deps += [
       "//starboard/elf_loader:constants",
       "//starboard/elf_loader:evergreen_config",
       "//starboard/loader_app:pending_restart",
     ]
-    deps += [ "//third_party/crashpad/wrapper" ]
+    deps += [ "//third_party/crashpad/crashpad/wrapper" ]
   } else {
-    deps += [ "//third_party/crashpad/wrapper:wrapper_stub" ]
+    deps += [ "//third_party/crashpad/crashpad/wrapper:wrapper_stub" ]
   }
 }
 
@@ -380,8 +382,13 @@ static_library("starboard_base_symbolize") {
     "//third_party/symbolize/demangle.cc",
     "//third_party/symbolize/symbolize.cc",
   ]
-
-  public_deps = [ "//starboard/elf_loader:evergreen_info" ]
+  deps = [
+    "//starboard:starboard_headers_only",
+    "//starboard/common:common_headers_only",
+  ]
+  if (sb_is_evergreen_compatible && current_toolchain == starboard_toolchain) {
+    public_deps = [ "//starboard/elf_loader:evergreen_info" ]
+  }
 }
 
 if (current_toolchain == starboard_toolchain) {

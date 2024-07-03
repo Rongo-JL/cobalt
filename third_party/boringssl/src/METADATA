@@ -3,16 +3,16 @@ description:
   "Subtree at third_party/boringssl/src."
 
 third_party {
-  url {
-    type: LOCAL_SOURCE
-    value: "/third_party/boringssl_mirror"
+  identifier {
+    type: "ChromiumVersion"
+    value: "114.0.5735.358"  # from https://chromereleases.googleblog.com/2024/03/long-term-support-channel-update-for_26.html
   }
-  url {
-    type: GIT
-    value: "https://boringssl.googlesource.com/boringssl"
+  identifier {
+    type: "Git"
+    value: "https://boringssl.googlesource.com/boringssl.git"
+    version: "4b6d950d8921d6dd5365de0797fcc97302b9561b"
+    # from https://chromium.googlesource.com/chromium/src/+/114.0.5735.358/DEPS#319
   }
-  version: "7f4f41fa81c03e0f8ef1ab5b3d1d566b5968f107"
-  # from https://chromium.googlesource.com/chromium/src/+/70.0.3538.110/DEPS#141
   last_upgrade_date {
     year: 2018
     month: 8

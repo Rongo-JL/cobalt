@@ -31,14 +31,9 @@
 #include "cobalt/web/dom_exception.h"
 #include "cobalt/web/environment_settings.h"
 #include "cobalt/web/environment_settings_helper.h"
-#include "starboard/common/string.h"
 
 namespace cobalt {
 namespace media_capture {
-
-#if SB_USE_SB_MICROPHONE && !defined(DISABLE_MICROPHONE_IDL)
-#define ENABLE_MICROPHONE_IDL
-#endif
 
 namespace {
 
@@ -56,13 +51,11 @@ std::unique_ptr<Microphone> CreateMicrophone(
 
   std::unique_ptr<Microphone> mic;
 
-#if defined(ENABLE_MICROPHONE_IDL)
   mic.reset(new speech::MicrophoneStarboard(
       speech::MicrophoneStarboard::kDefaultSampleRate,
       /* Buffer for one second. */
       speech::MicrophoneStarboard::kDefaultSampleRate *
           speech::MicrophoneStarboard::kSbMicrophoneSampleSizeInBytes));
-#endif  // defined(ENABLE_MICROPHONE_IDL)
 
   return mic;
 }
@@ -79,7 +72,7 @@ MediaDevices::MediaDevices(script::EnvironmentSettings* settings,
     : web::EventTarget(settings),
       settings_(base::polymorphic_downcast<dom::DOMSettings*>(settings)),
       script_value_factory_(script_value_factory),
-      javascript_message_loop_(base::MessageLoop::current()),
+      task_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
       ALLOW_THIS_IN_INITIALIZER_LIST(weak_ptr_factory_(this)),
       weak_this_(weak_ptr_factory_.GetWeakPtr()) {}
 
@@ -184,9 +177,8 @@ void MediaDevices::OnMicrophoneError(
 }
 
 void MediaDevices::OnMicrophoneStopped() {
-  if (javascript_message_loop_->task_runner() !=
-      base::ThreadTaskRunnerHandle::Get()) {
-    javascript_message_loop_->task_runner()->PostTask(
+  if (task_runner_ != base::SequencedTaskRunner::GetCurrentDefault()) {
+    task_runner_->PostTask(
         FROM_HERE, base::Bind(&MediaDevices::OnMicrophoneStopped, weak_this_));
     return;
   }
@@ -207,9 +199,8 @@ void MediaDevices::OnMicrophoneSuccess() {
   // Log successful mic creation in UMA histogram
   LogMicCreationSucceededHistogramItem(true);
 
-  if (javascript_message_loop_->task_runner() !=
-      base::ThreadTaskRunnerHandle::Get()) {
-    javascript_message_loop_->task_runner()->PostTask(
+  if (task_runner_ != base::SequencedTaskRunner::GetCurrentDefault()) {
+    task_runner_->PostTask(
         FROM_HERE, base::Bind(&MediaDevices::OnMicrophoneSuccess, this));
     return;
   }

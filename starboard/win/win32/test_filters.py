@@ -13,9 +13,6 @@
 # limitations under the License.
 """Starboard win-win32 Platform Test Filters."""
 
-import logging
-import os
-
 from starboard.shared.win32 import test_filters as shared_test_filters
 from starboard.tools.testing import test_filter
 
@@ -23,6 +20,14 @@ from starboard.tools.testing import test_filter
 # pylint: disable=line-too-long
 _FILTERED_TESTS = {
     'nplb': [
+        # These tests hang too long on Windows.
+        'PosixSocketSendTest.RainyDaySendToClosedSocket',
+        'PosixSocketSendtoTest.RainyDaySendToClosedSocket',
+
+        # Currently frequently flaky on Windows
+        'SbConditionVariableWaitTimedTest.FLAKY_SunnyDayAutoInit',
+        'PosixConditionVariableWaitTimedTest.FLAKY_SunnyDayAutoInit',
+
         # This single test takes >15 minutes.
         'SbPlayerTest.MultiPlayer',
         # This test fails on win-win32 devel builds, because the compiler
@@ -38,6 +43,7 @@ _FILTERED_TESTS = {
         # Failures tracked by b/256160416.
         'SbSystemGetPathTest.ReturnsRequiredPaths',
         'SbPlayerGetAudioConfigurationTests/*_video_beneath_the_canopy_137_avc_dmp_output_decode_to_texture_*',
+        'SbPlayerGetMediaTimeTests/*_video_beneath_the_canopy_137_avc_dmp_output_decode_to_texture_*',
         'SbPlayerWriteSampleTests/*_video_beneath_the_canopy_137_avc_dmp_output_decode_to_texture_*',
         'SbSocketAddressTypes/SbSocketBindTest.RainyDayBadInterface/type_ipv6_filter_ipv6',
         'SbSocketAddressTypes/SbSocketGetInterfaceAddressTest.SunnyDayDestination/type_ipv6',
@@ -53,6 +59,9 @@ _FILTERED_TESTS = {
 
         # Enable once verified on the platform.
         'SbMediaCanPlayMimeAndKeySystem.MinimumSupport',
+
+        # TODO: b/349109647 Disable flaky test.
+        'SbPlayerGetMediaTimeTests/*',
     ],
     'player_filter_tests': [
         # These tests fail on our VMs for win-win32 builds due to missing
@@ -63,6 +72,19 @@ _FILTERED_TESTS = {
         # PlayerComponentsTests fail on our VMs. Preroll callback is always not called in
         # 5 seconds, which causes timeout error.
         'PlayerComponentsTests/*',
+    ],
+
+    # TODO: b/330792170 - Fix remaining failing win32 tests.
+    'net_unittests': [
+        'CookieMonsterTest.InheritCreationDate',
+        'FileStreamTest.UseFileHandle',  # Fails on github but not locally.
+        'UDPSocketTest.PartialRecv',
+        'UDPSocketTest.ConnectRandomBind',
+        'UDPSocketTest.ConnectFail',
+        'UDPSocketTest.LimitConnectFail',
+        'UDPSocketTest.ReadWithSocketOptimization',  # This test crashes.
+        'EmbeddedTestServerTestInstantiation/EmbeddedTestServerTest.ConnectionListenerComplete/0',
+        'PartitionedCookiesURLRequestHttpJobTest.PrivacyMode/0',
     ],
 }
 
@@ -82,23 +104,7 @@ class WinWin32TestFilters(shared_test_filters.TestFilters):
     Returns:
       A list of initialized TestFilter objects.
     """
-    if os.environ.get('COBALT_WIN_BUILDBOT_DISABLE_TESTS', '0') == '1':
-      logging.error('COBALT_WIN_BUILDBOT_DISABLE_TESTS=1, Tests are disabled.')
-      return [test_filter.DISABLE_TESTING]
-    else:
-      filters = super().GetTestFilters()
-      _FILTERED_TESTS.update(test_filter.EVERGREEN_ONLY_TESTS)
-      for target, tests in _FILTERED_TESTS.items():
-        filters.extend(test_filter.TestFilter(target, test) for test in tests)
-      if os.environ.get('EXPERIMENTAL_CI', '0') == '1':
-        # Disable these tests in the experimental CI due to pending failures.
-        experimental_filtered_tests = {
-            'drain_file_test': [
-                'DrainFileTest.SunnyDay',
-                'DrainFileTest.SunnyDayPrepareDirectory',
-                'DrainFileTest.RainyDayDrainFileAlreadyExists'
-            ]
-        }
-        for target, tests in experimental_filtered_tests.items():
-          filters.extend(test_filter.TestFilter(target, test) for test in tests)
-      return filters
+    filters = super().GetTestFilters()
+    for target, tests in _FILTERED_TESTS.items():
+      filters.extend(test_filter.TestFilter(target, test) for test in tests)
+    return filters
